@@ -6,6 +6,17 @@ import { useAuth } from "../lib/AuthContext";
 import { computeMemberStats, getLowScoreWarnings } from "../lib/statistics";
 import type { AttendanceRecord, Group, Member } from "../lib/types";
 
+const GROUP_BADGE_COLORS = [
+  "bg-blue-100 text-blue-700",
+  "bg-emerald-100 text-emerald-700",
+  "bg-amber-100 text-amber-700",
+  "bg-purple-100 text-purple-700",
+  "bg-rose-100 text-rose-700",
+  "bg-cyan-100 text-cyan-700",
+  "bg-lime-100 text-lime-700",
+  "bg-orange-100 text-orange-700"
+];
+
 export default function StatisticsPage() {
   const { admin, logout } = useAuth();
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
@@ -36,6 +47,16 @@ export default function StatisticsPage() {
         ? stats
         : stats.filter((s) => s.member.groupId === selectedGroupId),
     [stats, selectedGroupId]
+  );
+  const displayStats = useMemo(
+    () =>
+      [...filteredStats].sort((a, b) => {
+        if (a.member.groupId !== b.member.groupId) {
+          return a.member.groupId.localeCompare(b.member.groupId);
+        }
+        return a.member.name.localeCompare(b.member.name, "zh-CN");
+      }),
+    [filteredStats]
   );
   const selectedStat = useMemo(
     () => stats.find((s) => s.member.id === selectedMemberId) ?? null,
@@ -79,7 +100,7 @@ export default function StatisticsPage() {
           </p>
         </div>
         {admin ? (
-          <div className="text-xs text-gray-600">
+          <div className="text-sm text-gray-600">
             已登录：{admin.username}
             <button
               type="button"
@@ -92,7 +113,7 @@ export default function StatisticsPage() {
         ) : (
           <button
             type="button"
-            className="btn-primary text-xs"
+            className="btn-primary text-sm"
             onClick={() => setShowLogin(true)}
           >
             管理员登录后查看
@@ -109,9 +130,9 @@ export default function StatisticsPage() {
           <div className="card p-4">
             <div className="text-sm font-medium">低分预警</div>
             {lowWarnings.length === 0 ? (
-              <p className="mt-2 text-xs text-gray-500">暂无预警成员。</p>
+              <p className="mt-2 text-sm text-gray-500">暂无预警成员。</p>
             ) : (
-              <ul className="mt-2 space-y-1 text-xs">
+              <ul className="mt-2 space-y-1.5 text-sm">
                 {lowWarnings.map((w) => (
                   <li key={w.member.id} className="text-gray-600">
                     {w.groupName} · {w.member.name}：均分
@@ -127,10 +148,10 @@ export default function StatisticsPage() {
           </div>
 
           <div className="card p-4">
-            <div className="flex flex-wrap items-center gap-2 text-xs">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
               <span className="text-gray-500">组别筛选：</span>
               <select
-                className="rounded border border-gray-300 px-2 py-1"
+                className="rounded border border-gray-300 px-2 py-1 text-sm"
                 value={selectedGroupId}
                 onChange={(e) => setSelectedGroupId(e.target.value)}
               >
@@ -152,7 +173,7 @@ export default function StatisticsPage() {
           统计列表
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-xs">
+          <table className="min-w-full text-left text-sm">
             <thead className="bg-gray-50 text-gray-600">
               <tr>
                 <th className="px-3 py-2">组别</th>
@@ -163,17 +184,31 @@ export default function StatisticsPage() {
                 <th className="px-3 py-2">操作</th>
               </tr>
             </thead>
-            <tbody className="divide-y bg-white">
-              {filteredStats.map((s) => (
-                <tr key={s.member.id}>
-                  <td className="px-3 py-2 text-xs text-gray-700">
-                    {s.groupName}
+            <tbody className="bg-white">
+              {displayStats.map((s, idx) => {
+                const prev = displayStats[idx - 1];
+                const isGroupChanged =
+                  idx === 0 || prev.member.groupId !== s.member.groupId;
+                const groupColor =
+                  GROUP_BADGE_COLORS[
+                    (Number(s.member.groupId.replace("group-", "")) - 1) %
+                      GROUP_BADGE_COLORS.length
+                  ] || "bg-gray-100 text-gray-700";
+                return (
+                <tr
+                  key={s.member.id}
+                  className={`${isGroupChanged ? "border-t-2 border-gray-300" : "border-t border-gray-100"}`}
+                >
+                  <td className="px-3 py-2 text-gray-700">
+                    <span className={`inline-flex rounded px-2 py-0.5 text-xs font-medium ${groupColor}`}>
+                      {s.groupName}
+                    </span>
                   </td>
-                  <td className="px-3 py-2 text-xs text-gray-700">
+                  <td className="px-3 py-2 text-gray-700">
                     {s.member.name}
                   </td>
                   <td
-                    className={`px-3 py-2 text-xs ${
+                    className={`px-3 py-2 ${
                       s.avgScore === null
                         ? "text-gray-400"
                         : s.avgScore >= 3
@@ -185,25 +220,26 @@ export default function StatisticsPage() {
                   >
                     {s.avgScore === null ? "-" : s.avgScore.toFixed(1)}
                   </td>
-                  <td className="px-3 py-2 text-xs text-gray-700">
+                  <td className="px-3 py-2 text-gray-700">
                     {s.totalPenaltyDays >= 0
                       ? `+${s.totalPenaltyDays} 天`
                       : `${s.totalPenaltyDays} 天`}
                   </td>
-                  <td className="px-3 py-2 text-xs text-gray-500">
+                  <td className="px-3 py-2 text-gray-500">
                     已到 {s.present} · 待改进 {s.improve} · 缺席 {s.absent} · 不合格{" "}
                     {s.fail} · 优秀 {s.perfect}
                   </td>
-                  <td className="px-3 py-2 text-xs">
+                  <td className="px-3 py-2">
                     <button
-                      className="btn-outline text-xs"
+                      className="btn-outline text-sm"
                       onClick={() => setSelectedMemberId(s.member.id)}
                     >
                       查看记录
                     </button>
                   </td>
                 </tr>
-              ))}
+              );
+              })}
             </tbody>
           </table>
         </div>
@@ -219,25 +255,25 @@ export default function StatisticsPage() {
                 <h2 className="text-sm font-semibold">
                   {selectedStat.groupName} · {selectedStat.member.name} 的记录详情
                 </h2>
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-sm text-gray-500">
                   共 {memberRecords.length} 条记录
                 </p>
               </div>
               <button
                 type="button"
-                className="text-xs text-gray-400 hover:text-gray-600"
+                className="text-sm text-gray-400 hover:text-gray-600"
                 onClick={() => setSelectedMemberId(null)}
               >
                 关闭
               </button>
             </div>
             {message && (
-              <p className={`mt-2 text-xs ${message.includes("失败") ? "text-red-600" : "text-green-600"}`}>
+              <p className={`mt-2 text-sm ${message.includes("失败") ? "text-red-600" : "text-green-600"}`}>
                 {message}
               </p>
             )}
             <div className="mt-3 max-h-[60vh] overflow-auto">
-              <table className="min-w-full text-left text-xs">
+              <table className="min-w-full text-left text-sm">
                 <thead className="bg-gray-50 text-gray-600">
                   <tr>
                     <th className="px-3 py-2">日期</th>
