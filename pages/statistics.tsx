@@ -3,47 +3,8 @@ import { LoginModal } from "../components/LoginModal";
 import { createDefaultGroups } from "../lib/mockData";
 import { driver } from "../lib/appData";
 import { useAuth } from "../lib/AuthContext";
+import { computeMemberStats, getLowScoreWarnings } from "../lib/statistics";
 import type { AttendanceRecord, Group, Member } from "../lib/types";
-
-type MemberStats = {
-  member: Member;
-  groupName: string;
-  avgScore: number | null;
-  totalPenaltyDays: number;
-  present: number;
-  improve: number;
-  absent: number;
-  fail: number;
-  perfect: number;
-};
-
-function computeStats(records: AttendanceRecord[], groups: Group[]): MemberStats[] {
-  const members = groups.flatMap((g) =>
-    g.members.map((m) => ({ m, groupName: g.name }))
-  );
-  return members.map(({ m, groupName }) => {
-    const mr = records.filter((r) => r.memberId === m.id);
-    const validScores = mr.filter((r) => r.score > 0).map((r) => r.score);
-    const avg =
-      validScores.length > 0
-        ? validScores.reduce((a, b) => a + b, 0) / validScores.length
-        : null;
-    const totalPenalty = mr.reduce((sum, r) => sum + (r.penaltyDays ?? 0), 0);
-    const count = (s: AttendanceRecord["status"]) =>
-      mr.filter((r) => r.status === s).length;
-    return {
-      member: m,
-      groupName,
-      avgScore: avg,
-      totalPenaltyDays: totalPenalty,
-      present: count("present"),
-      improve: count("improve"),
-      absent: count("absent"),
-      fail: count("fail"),
-      perfect: count("perfect")
-    };
-  });
-}
 
 export default function StatisticsPage() {
   const { admin, logout } = useAuth();
@@ -64,7 +25,11 @@ export default function StatisticsPage() {
       .catch(() => {});
   }, [admin]);
 
-  const stats = useMemo(() => computeStats(records, groups), [records, groups]);
+  const stats = useMemo(() => computeMemberStats(records, groups), [records, groups]);
+  const lowWarnings = useMemo(() => getLowScoreWarnings(stats).slice(0, 8), [stats]);
+  const memberNameMap = useMemo(() => {
+    return new Map(groups.flatMap((g) => g.members).map((m) => [m.id, m.name]));
+  }, [groups]);
   const filteredStats = useMemo(
     () =>
       selectedGroupId === "all"
@@ -135,6 +100,26 @@ export default function StatisticsPage() {
         </section>
       ) : (
         <>
+          <div className="card p-4">
+            <div className="text-sm font-medium">低分预警</div>
+            {lowWarnings.length === 0 ? (
+              <p className="mt-2 text-xs text-gray-500">暂无预警成员。</p>
+            ) : (
+              <ul className="mt-2 space-y-1 text-xs">
+                {lowWarnings.map((w) => (
+                  <li key={w.member.id} className="text-gray-600">
+                    {w.groupName} · {w.member.name}：均分
+                    <span className="text-red-600">
+                      {" "}
+                      {w.avgScore === null ? "-" : w.avgScore.toFixed(1)}
+                    </span>
+                    ，缺席 {w.absent}，不合格 {w.fail}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
           <div className="card p-4">
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="text-gray-500">组别筛选：</span>
@@ -265,9 +250,18 @@ export default function StatisticsPage() {
                       <td className="px-3 py-2">{r.score}</td>
                       <td className="px-3 py-2">{r.penaltyDays}</td>
                       <td className="px-3 py-2 text-gray-500">
-                        {r.isGroupAbsent ? "全体缺勤 " : ""}
-                        {r.isImportantEvent ? "重大活动" : ""}
-                        {!r.isGroupAbsent && !r.isImportantEvent ? "-" : ""}
+                        {[
+                          r.isGroupAbsent ? "全体缺勤" : null,
+                          r.isImportantEvent ? "重大活动" : null,
+                          r.isSubstituted && r.substitutedBy
+                            ? `代值(${memberNameMap.get(r.substitutedBy) ?? r.substitutedBy})`
+                            : null,
+                          r.isExchanged && r.exchangedWith
+                            ? `还值(${memberNameMap.get(r.exchangedWith) ?? r.exchangedWith})`
+                            : null
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || "-"}
                       </td>
                       <td className="px-3 py-2">
                         {admin?.isRoot ? (

@@ -1,5 +1,6 @@
 import { createDefaultGroups } from "./mockData";
 import { MemoryDriver, SupabaseDriver } from "./storage";
+import type { StorageDriver } from "./storage";
 import type { Group } from "./types";
 
 const defaultGroups: Group[] = createDefaultGroups();
@@ -8,6 +9,6 @@ const defaultGroups: Group[] = createDefaultGroups();
 const supabaseDriver = new SupabaseDriver();
 const memoryDriver = new MemoryDriver(defaultGroups);
 
-export const driver = supabaseDriver.isReady() ? supabaseDriver : memoryDriver;
+export const driver: StorageDriver = supabaseDriver.isReady() ? supabaseDriver : memoryDriver;
 export const groups = defaultGroups;
 

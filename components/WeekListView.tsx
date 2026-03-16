@@ -24,6 +24,10 @@ interface AttendanceFormState {
   status: AttendanceStatusCode;
   score: number;
   penaltyDays: number;
+  isSubstituted: boolean;
+  substitutedBy: string | null;
+  isExchanged: boolean;
+  exchangedWith: string | null;
 }
 
 const STATUS_OPTIONS: { value: AttendanceStatusCode; label: string }[] = [
@@ -77,6 +81,7 @@ export function WeekListView(props: {
     }
     return defaultGroup;
   }, [props.groups, props.scheduleOverrides, weekStartISO, defaultGroup]);
+  const allMembers = useMemo(() => props.groups.flatMap((g) => g.members), [props.groups]);
 
   const goToWeek = (y: number, w: number) => {
     const max = getWeeksInYear(y);
@@ -86,12 +91,20 @@ export function WeekListView(props: {
 
   const openForm = (member: Member, date: Date) => {
     if (!props.isAdmin) return;
+    const dateStr = format(date, "yyyy-MM-dd");
+    const existing = (props.records ?? []).find(
+      (r) => r.memberId === member.id && r.date === dateStr
+    );
     setForm({
       member,
-      date: format(date, "yyyy-MM-dd"),
-      status: "pending",
-      score: 0,
-      penaltyDays: 0
+      date: dateStr,
+      status: existing?.status ?? "pending",
+      score: existing?.score ?? 0,
+      penaltyDays: existing?.penaltyDays ?? 0,
+      isSubstituted: Boolean(existing?.isSubstituted),
+      substitutedBy: existing?.substitutedBy ?? null,
+      isExchanged: Boolean(existing?.isExchanged),
+      exchangedWith: existing?.exchangedWith ?? null
     });
   };
 
@@ -109,7 +122,11 @@ export function WeekListView(props: {
       memberId: form.member.id,
       status: form.status,
       score: form.score,
-      penaltyDays: finalPenalty
+      penaltyDays: finalPenalty,
+      isSubstituted: form.isSubstituted,
+      substitutedBy: form.isSubstituted ? form.substitutedBy : null,
+      isExchanged: form.isExchanged,
+      exchangedWith: form.isExchanged ? form.exchangedWith : null
     };
     // 目前由上层接管保存（可接 Supabase）
     void props.onSave(rec);
@@ -387,6 +404,112 @@ export function WeekListView(props: {
                       )
                     }
                   />
+                </div>
+              </div>
+
+              <div className="rounded border border-gray-200 p-2">
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={form.isSubstituted}
+                      onChange={(e) =>
+                        setForm((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                isSubstituted: e.target.checked,
+                                substitutedBy: e.target.checked ? prev.substitutedBy : null
+                              }
+                            : prev
+                        )
+                      }
+                    />
+                    <span className="text-gray-700">代值</span>
+                  </label>
+                  {form.isSubstituted && (
+                    <select
+                      className="w-full rounded-md border border-gray-300 px-2 py-1"
+                      value={form.substitutedBy ?? ""}
+                      onChange={(e) =>
+                        setForm((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                substitutedBy: e.target.value || null
+                              }
+                            : prev
+                        )
+                      }
+                    >
+                      <option value="">选择代值人</option>
+                      {allMembers
+                        .filter((m) => m.id !== form.member?.id)
+                        .map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name}
+                          </option>
+                        ))}
+                    </select>
+                  )}
+                </div>
+                <div className="mt-2 space-y-2">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={form.isExchanged}
+                      onChange={(e) =>
+                        setForm((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                isExchanged: e.target.checked,
+                                exchangedWith: e.target.checked ? prev.exchangedWith : null
+                              }
+                            : prev
+                        )
+                      }
+                    />
+                    <span className="text-gray-700">还值</span>
+                  </label>
+                  {form.isExchanged && (
+                    <select
+                      className="w-full rounded-md border border-gray-300 px-2 py-1"
+                      value={form.exchangedWith ?? ""}
+                      onChange={(e) =>
+                        setForm((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                exchangedWith: e.target.value || null
+                              }
+                            : prev
+                        )
+                      }
+                    >
+                      <option value="">选择还值对象</option>
+                      {Array.from(
+                        new Set(
+                          (props.records ?? [])
+                            .filter(
+                              (r) =>
+                                r.memberId === form.member?.id &&
+                                Boolean(r.isSubstituted) &&
+                                Boolean(r.substitutedBy)
+                            )
+                            .map((r) => r.substitutedBy as string)
+                        )
+                      ).map((id) => {
+                        const m = allMembers.find((x) => x.id === id);
+                        if (!m) return null;
+                        return (
+                          <option key={m.id} value={m.id}>
+                            {m.name}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  )}
                 </div>
               </div>
 

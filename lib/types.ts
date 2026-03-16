@@ -36,6 +36,14 @@ export interface AttendanceRecord {
   updatedAt?: string;
 }
 
+export interface ExtraDuty {
+  id: string;
+  date: string; // yyyy-MM-dd
+  memberId: string;
+  reason?: string | null;
+  createdAt?: string;
+}
+
 export interface WeekMeta {
   year: number;
   weekIndex: number;

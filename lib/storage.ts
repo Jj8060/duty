@@ -1,4 +1,4 @@
-import type { AttendanceRecord, Group } from "./types";
+import type { AttendanceRecord, ExtraDuty, Group } from "./types";
 import { supabase } from "./supabaseClient";
 import { createDefaultGroups } from "./mockData";
 
@@ -29,6 +29,13 @@ export interface StorageDriver {
   }): Promise<void>;
   setAdminDisabled?(id: string, disabled: boolean): Promise<void>;
 
+  listExtraDuties?(params?: {
+    fromDate?: string;
+    toDate?: string;
+  }): Promise<ExtraDuty[]>;
+  upsertExtraDuty?(data: Omit<ExtraDuty, "id" | "createdAt"> & { id?: string }): Promise<ExtraDuty>;
+  deleteExtraDuty?(id: string): Promise<void>;
+
   upsertAttendanceRecord(
     record: Omit<AttendanceRecord, "id"> & { id?: string }
   ): Promise<AttendanceRecord>;
@@ -48,6 +55,7 @@ export interface StorageDriver {
 export class MemoryDriver implements StorageDriver {
   private groups: Group[];
   private attendance: AttendanceRecord[] = [];
+  private extraDuties: ExtraDuty[] = [];
   private admins: {
     id: string;
     username: string;
@@ -178,6 +186,41 @@ export class MemoryDriver implements StorageDriver {
     this.admins = this.admins.map((a) =>
       a.id === id ? { ...a, isDisabled: disabled } : a
     );
+  }
+
+  async listExtraDuties(params?: {
+    fromDate?: string;
+    toDate?: string;
+  }): Promise<ExtraDuty[]> {
+    return this.extraDuties.filter((d) => {
+      if (params?.fromDate && d.date < params.fromDate) return false;
+      if (params?.toDate && d.date > params.toDate) return false;
+      return true;
+    });
+  }
+
+  async upsertExtraDuty(
+    data: Omit<ExtraDuty, "id" | "createdAt"> & { id?: string }
+  ): Promise<ExtraDuty> {
+    const id = data.id ?? `extra-${Date.now()}`;
+    const existing = this.extraDuties.findIndex((d) => d.id === id);
+    const full: ExtraDuty = {
+      id,
+      date: data.date,
+      memberId: data.memberId,
+      reason: data.reason ?? null,
+      createdAt: new Date().toISOString()
+    };
+    if (existing >= 0) {
+      this.extraDuties[existing] = full;
+    } else {
+      this.extraDuties.push(full);
+    }
+    return full;
+  }
+
+  async deleteExtraDuty(id: string): Promise<void> {
+    this.extraDuties = this.extraDuties.filter((d) => d.id !== id);
   }
 }
 
@@ -360,6 +403,56 @@ export class SupabaseDriver implements StorageDriver {
       .from("admins")
       .update({ is_disabled: disabled })
       .eq("id", id);
+    if (error) throw new Error(error.message);
+  }
+
+  async listExtraDuties(params?: {
+    fromDate?: string;
+    toDate?: string;
+  }): Promise<ExtraDuty[]> {
+    let q = supabase
+      .from("extra_duties")
+      .select("id,date,member_id,reason,created_at")
+      .order("date", { ascending: false });
+    if (params?.fromDate) q = q.gte("date", params.fromDate);
+    if (params?.toDate) q = q.lte("date", params.toDate);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((r: any) => ({
+      id: r.id,
+      date: r.date,
+      memberId: r.member_id,
+      reason: r.reason,
+      createdAt: r.created_at
+    }));
+  }
+
+  async upsertExtraDuty(
+    data: Omit<ExtraDuty, "id" | "createdAt"> & { id?: string }
+  ): Promise<ExtraDuty> {
+    const payload = {
+      id: data.id,
+      date: data.date,
+      member_id: data.memberId,
+      reason: data.reason ?? null
+    };
+    const { data: row, error } = await supabase
+      .from("extra_duties")
+      .upsert(payload)
+      .select("id,date,member_id,reason,created_at")
+      .single();
+    if (error || !row) throw new Error(error?.message ?? "保存额外值日失败");
+    return {
+      id: row.id,
+      date: row.date,
+      memberId: row.member_id,
+      reason: row.reason,
+      createdAt: row.created_at
+    };
+  }
+
+  async deleteExtraDuty(id: string): Promise<void> {
+    const { error } = await supabase.from("extra_duties").delete().eq("id", id);
     if (error) throw new Error(error.message);
   }
 
