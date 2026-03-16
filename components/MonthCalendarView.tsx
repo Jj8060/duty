@@ -12,6 +12,11 @@ import {
 } from "date-fns";
 import { useMemo, useState } from "react";
 import { getDefaultGroupForWeek } from "../lib/mockData";
+import {
+  applyPenaltyRules,
+  getDefaultPenaltyByStatus,
+  getDefaultScoreByStatus
+} from "../lib/attendanceRules";
 import type {
   AttendanceRecord,
   AttendanceStatusCode,
@@ -37,6 +42,14 @@ const STATUS_OPTIONS: { value: AttendanceStatusCode; label: string }[] = [
 ];
 
 const WEEK_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
+const STATUS_LABEL_MAP: Record<AttendanceStatusCode, string> = {
+  present: "已到",
+  absent: "缺席",
+  fail: "不合格",
+  improve: "待改进",
+  pending: "待定",
+  perfect: "优秀"
+};
 
 export function MonthCalendarView(props: {
   groups: Group[];
@@ -99,6 +112,7 @@ export function MonthCalendarView(props: {
   };
 
   const openForm = (member: Member, date: Date) => {
+    if (!props.isAdmin) return;
     setForm({
       member,
       date: dateKey(date),
@@ -112,12 +126,17 @@ export function MonthCalendarView(props: {
 
   const handleSave = () => {
     if (!form?.member || !form.date) return;
+    const finalPenalty = applyPenaltyRules({
+      date: form.date,
+      status: form.status,
+      penaltyDays: form.penaltyDays
+    });
     void props.onSave({
       date: form.date,
       memberId: form.member.id,
       status: form.status,
       score: form.score,
-      penaltyDays: form.penaltyDays
+      penaltyDays: finalPenalty
     });
     closeForm();
   };
@@ -226,18 +245,60 @@ export function MonthCalendarView(props: {
         })}
       </div>
 
-      <div className="rounded border border-gray-200 bg-white p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <div className="text-sm font-semibold">
-              {format(selected, "yyyy-MM-dd")} · {selectedGroup.name}
+      {selectedDate && (
+        <div className="fixed bottom-4 right-4 z-30 w-[360px] max-w-[calc(100vw-2rem)] rounded-lg border border-gray-200 bg-white p-3 shadow-lg">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="text-sm font-semibold">
+                {format(selected, "yyyy-MM-dd")} · {selectedGroup.name}
+              </div>
+              <div className="text-xs text-gray-500">当日评价详情（浮动面板）</div>
             </div>
-            <div className="text-xs text-gray-500">
-              点击成员可打开评价面板
-            </div>
+            <button
+              type="button"
+              className="text-xs text-gray-400 hover:text-gray-600"
+              onClick={() => setSelectedDate(null)}
+            >
+              关闭
+            </button>
           </div>
+
+          <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+            {selectedGroup.members.map((m) => {
+              const rec = selectedDayRecords.find((r) => r.memberId === m.id);
+              const statusText = rec ? STATUS_LABEL_MAP[rec.status] : "未评价";
+              const scoreText = rec ? rec.score : "-";
+              const penaltyText = rec ? rec.penaltyDays : "-";
+              return (
+                <div
+                  key={m.id}
+                  className="flex items-center justify-between rounded border border-gray-100 px-2 py-1.5 text-xs"
+                >
+                  <div>
+                    <div className="font-medium text-gray-800">{m.name}</div>
+                    <div className="text-[11px] text-gray-500">
+                      状态：{statusText} · 评分：{scoreText} · 惩罚：{penaltyText}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className={`rounded border px-2 py-1 text-[11px] ${
+                      props.isAdmin
+                        ? "border-gray-200 hover:border-primary hover:text-primary"
+                        : "border-gray-100 text-gray-400 cursor-not-allowed"
+                    }`}
+                    disabled={!props.isAdmin}
+                    onClick={() => openForm(m, selected)}
+                  >
+                    评价
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
           {props.isAdmin && (
-            <div className="flex flex-wrap gap-1">
+            <div className="mt-3 flex flex-wrap gap-1">
               <button
                 type="button"
                 className="rounded border border-red-200 px-2 py-1 text-[11px] text-red-600 hover:bg-red-50"
@@ -274,20 +335,7 @@ export function MonthCalendarView(props: {
             </div>
           )}
         </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {selectedGroup.members.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              className="rounded-md border border-gray-200 px-2 py-1 text-xs hover:border-primary hover:text-primary"
-              onClick={() => openForm(m, selected)}
-            >
-              {m.name}
-              <span className="ml-1 text-[10px] text-gray-400">评价</span>
-            </button>
-          ))}
-        </div>
-      </div>
+      )}
 
       {form && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30">
@@ -318,7 +366,13 @@ export function MonthCalendarView(props: {
                       prev
                         ? {
                             ...prev,
-                            status: e.target.value as AttendanceStatusCode
+                            status: e.target.value as AttendanceStatusCode,
+                            score: getDefaultScoreByStatus(
+                              e.target.value as AttendanceStatusCode
+                            ),
+                            penaltyDays: getDefaultPenaltyByStatus(
+                              e.target.value as AttendanceStatusCode
+                            )
                           }
                         : prev
                     )

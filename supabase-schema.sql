@@ -55,6 +55,36 @@ create table if not exists public.admins (
   created_at timestamptz default now()
 );
 
+-- 5.1 管理员操作日志（框架）
+create table if not exists public.admin_operation_logs (
+  id uuid primary key default gen_random_uuid(),
+  operator_username text not null,
+  action text not null,
+  target text,
+  detail jsonb,
+  created_at timestamptz default now()
+);
+
+-- 5.2 额外值日人员（框架）
+create table if not exists public.extra_duties (
+  id uuid primary key default gen_random_uuid(),
+  date date not null,
+  member_id text not null references public.members(id),
+  reason text,
+  created_at timestamptz default now()
+);
+
+-- 5.3 代值/还值关系（框架）
+create table if not exists public.substitution_records (
+  id uuid primary key default gen_random_uuid(),
+  date date not null,
+  original_member_id text not null references public.members(id),
+  substitute_member_id text not null references public.members(id),
+  is_return boolean not null default false,
+  note text,
+  created_at timestamptz default now()
+);
+
 -- 6. 种子数据：默认 8 组、每组 3 人（仅当表为空时执行）
 insert into public.groups (id, name)
 select * from (values

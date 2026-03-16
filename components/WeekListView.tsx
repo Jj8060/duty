@@ -6,6 +6,11 @@ import {
   getWeekDays,
   getWeeksInYear
 } from "../lib/mockData";
+import {
+  applyPenaltyRules,
+  getDefaultPenaltyByStatus,
+  getDefaultScoreByStatus
+} from "../lib/attendanceRules";
 import type {
   AttendanceRecord,
   AttendanceStatusCode,
@@ -80,6 +85,7 @@ export function WeekListView(props: {
   const goToToday = () => setCurrentDate(new Date());
 
   const openForm = (member: Member, date: Date) => {
+    if (!props.isAdmin) return;
     setForm({
       member,
       date: format(date, "yyyy-MM-dd"),
@@ -93,12 +99,17 @@ export function WeekListView(props: {
 
   const handleSave = () => {
     if (!form?.member || !form.date) return;
+    const finalPenalty = applyPenaltyRules({
+      date: form.date,
+      status: form.status,
+      penaltyDays: form.penaltyDays
+    });
     const rec: Omit<AttendanceRecord, "id"> & { id?: string } = {
       date: form.date,
       memberId: form.member.id,
       status: form.status,
       score: form.score,
-      penaltyDays: form.penaltyDays
+      penaltyDays: finalPenalty
     };
     // 目前由上层接管保存（可接 Supabase）
     void props.onSave(rec);
@@ -221,7 +232,12 @@ export function WeekListView(props: {
                         <button
                           key={m.id}
                           type="button"
-                          className="rounded-md border border-gray-200 px-2 py-1 text-xs hover:border-primary hover:text-primary"
+                          className={`rounded-md border px-2 py-1 text-xs ${
+                            props.isAdmin
+                              ? "border-gray-200 hover:border-primary hover:text-primary"
+                              : "border-gray-100 text-gray-400 cursor-not-allowed"
+                          }`}
+                          disabled={!props.isAdmin}
                           onClick={() => openForm(m, day)}
                         >
                           {m.name}
@@ -312,8 +328,13 @@ export function WeekListView(props: {
                       prev
                         ? {
                             ...prev,
-                            status: e.target
-                              .value as AttendanceStatusCode
+                            status: e.target.value as AttendanceStatusCode,
+                            score: getDefaultScoreByStatus(
+                              e.target.value as AttendanceStatusCode
+                            ),
+                            penaltyDays: getDefaultPenaltyByStatus(
+                              e.target.value as AttendanceStatusCode
+                            )
                           }
                         : prev
                     )

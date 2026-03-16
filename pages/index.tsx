@@ -3,6 +3,7 @@ import { WeekListView } from "../components/WeekListView";
 import { MonthCalendarView } from "../components/MonthCalendarView";
 import { LoginModal } from "../components/LoginModal";
 import { createDefaultGroups } from "../lib/mockData";
+import { applyPenaltyRules } from "../lib/attendanceRules";
 import { driver } from "../lib/appData";
 import { useAuth } from "../lib/AuthContext";
 import type { AttendanceRecord, Group } from "../lib/types";
@@ -55,7 +56,13 @@ export default function HomePage() {
         memberId: mid,
         status: isSet ? "absent" : "pending",
         score: isSet ? 1 : 0,
-        penaltyDays: isSet ? 1 : 0,
+        penaltyDays: isSet
+          ? applyPenaltyRules({
+              date: dateStr,
+              status: "absent",
+              penaltyDays: 1
+            })
+          : 0,
         isGroupAbsent: isSet,
         isImportantEvent: false
       });

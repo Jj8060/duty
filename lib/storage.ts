@@ -13,6 +13,21 @@ export interface StorageDriver {
 
   updateGroupName?(id: string, name: string): Promise<void>;
   updateMemberName?(id: string, name: string): Promise<void>;
+  listAdmins?(): Promise<
+    {
+      id: string;
+      username: string;
+      isRoot: boolean;
+      isDisabled: boolean;
+      createdAt?: string;
+    }[]
+  >;
+  createAdmin?(params: {
+    username: string;
+    password: string;
+    isRoot?: boolean;
+  }): Promise<void>;
+  setAdminDisabled?(id: string, disabled: boolean): Promise<void>;
 
   upsertAttendanceRecord(
     record: Omit<AttendanceRecord, "id"> & { id?: string }
@@ -27,11 +42,29 @@ export interface StorageDriver {
     date: string,
     memberIds: string[]
   ): Promise<void>;
+  deleteAttendanceRecord?(id: string): Promise<void>;
 }
 
 export class MemoryDriver implements StorageDriver {
   private groups: Group[];
   private attendance: AttendanceRecord[] = [];
+  private admins: {
+    id: string;
+    username: string;
+    password: string;
+    isRoot: boolean;
+    isDisabled: boolean;
+    createdAt: string;
+  }[] = [
+    {
+      id: "admin-root-1",
+      username: "ZRWY",
+      password: "goodday",
+      isRoot: true,
+      isDisabled: false,
+      createdAt: new Date().toISOString()
+    }
+  ];
 
   constructor(groups: Group[]) {
     this.groups = groups;
@@ -99,6 +132,51 @@ export class MemoryDriver implements StorageDriver {
     const ids = new Set(memberIds);
     this.attendance = this.attendance.filter(
       (r) => !(r.date === date && ids.has(r.memberId))
+    );
+  }
+
+  async deleteAttendanceRecord(id: string): Promise<void> {
+    this.attendance = this.attendance.filter((r) => r.id !== id);
+  }
+
+  async listAdmins(): Promise<
+    {
+      id: string;
+      username: string;
+      isRoot: boolean;
+      isDisabled: boolean;
+      createdAt?: string;
+    }[]
+  > {
+    return this.admins.map((a) => ({
+      id: a.id,
+      username: a.username,
+      isRoot: a.isRoot,
+      isDisabled: a.isDisabled,
+      createdAt: a.createdAt
+    }));
+  }
+
+  async createAdmin(params: {
+    username: string;
+    password: string;
+    isRoot?: boolean;
+  }): Promise<void> {
+    const exists = this.admins.some((a) => a.username === params.username);
+    if (exists) throw new Error("管理员账号已存在");
+    this.admins.push({
+      id: `admin-${Date.now()}`,
+      username: params.username,
+      password: params.password,
+      isRoot: Boolean(params.isRoot),
+      isDisabled: false,
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  async setAdminDisabled(id: string, disabled: boolean): Promise<void> {
+    this.admins = this.admins.map((a) =>
+      a.id === id ? { ...a, isDisabled: disabled } : a
     );
   }
 }
@@ -232,6 +310,56 @@ export class SupabaseDriver implements StorageDriver {
       .delete()
       .eq("date", date)
       .in("member_id", memberIds);
+    if (error) throw new Error(error.message);
+  }
+
+  async deleteAttendanceRecord(id: string): Promise<void> {
+    const { error } = await supabase.from("attendance_records").delete().eq("id", id);
+    if (error) throw new Error(error.message);
+  }
+
+  async listAdmins(): Promise<
+    {
+      id: string;
+      username: string;
+      isRoot: boolean;
+      isDisabled: boolean;
+      createdAt?: string;
+    }[]
+  > {
+    const { data, error } = await supabase
+      .from("admins")
+      .select("id, username, is_root, is_disabled, created_at")
+      .order("created_at", { ascending: true });
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((r: any) => ({
+      id: r.id,
+      username: r.username,
+      isRoot: Boolean(r.is_root),
+      isDisabled: Boolean(r.is_disabled),
+      createdAt: r.created_at
+    }));
+  }
+
+  async createAdmin(params: {
+    username: string;
+    password: string;
+    isRoot?: boolean;
+  }): Promise<void> {
+    const { error } = await supabase.from("admins").insert({
+      username: params.username,
+      password: params.password,
+      is_root: Boolean(params.isRoot),
+      is_disabled: false
+    });
+    if (error) throw new Error(error.message);
+  }
+
+  async setAdminDisabled(id: string, disabled: boolean): Promise<void> {
+    const { error } = await supabase
+      .from("admins")
+      .update({ is_disabled: disabled })
+      .eq("id", id);
     if (error) throw new Error(error.message);
   }
 
