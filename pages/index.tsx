@@ -1,20 +1,97 @@
 import { useEffect, useState } from "react";
 import { WeekListView } from "../components/WeekListView";
-import { driver, groups } from "../lib/appData";
-import type { AttendanceRecord } from "../lib/types";
+import { MonthCalendarView } from "../components/MonthCalendarView";
+import { LoginModal } from "../components/LoginModal";
+import { createDefaultGroups } from "../lib/mockData";
+import { driver } from "../lib/appData";
+import { useAuth } from "../lib/AuthContext";
+import type { AttendanceRecord, Group } from "../lib/types";
 
 type ViewMode = "calendar" | "list";
 
 export default function HomePage() {
-  const [viewMode, setViewMode] = useState<ViewMode>("calendar");
+  const { admin, logout } = useAuth();
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [groups, setGroups] = useState<Group[]>(() => createDefaultGroups());
+  const [overrides, setOverrides] = useState<Record<string, string>>({});
+  const [showLogin, setShowLogin] = useState(false);
 
   useEffect(() => {
-    // 初始化拉取（若配置了 Supabase，则从云端读取；否则从内存驱动读取）
-    void driver.listAttendanceRecords().then(setRecords).catch(() => {
-      setRecords([]);
-    });
+    void driver.listAttendanceRecords().then(setRecords).catch(() => setRecords([]));
+    void driver
+      .getGroups()
+      .then((g) => setGroups(g.length > 0 ? g : createDefaultGroups()))
+      .catch(() => {});
+    if (driver.getScheduleOverrides) {
+      void driver.getScheduleOverrides().then(setOverrides).catch(() => {});
+    }
   }, []);
+
+  const handleOverride = async (weekStart: string, groupId: string) => {
+    if (!driver.upsertScheduleOverride) return;
+    await driver.upsertScheduleOverride(weekStart, groupId);
+    setOverrides((prev) => ({ ...prev, [weekStart]: groupId }));
+  };
+
+  const handleDeleteOverride = async (weekStart: string) => {
+    if (!driver.deleteScheduleOverride) return;
+    await driver.deleteScheduleOverride(weekStart);
+    setOverrides((prev) => {
+      const next = { ...prev };
+      delete next[weekStart];
+      return next;
+    });
+  };
+
+  const handleGroupAbsent = async (
+    dateStr: string,
+    memberIds: string[],
+    isSet: boolean
+  ) => {
+    for (const mid of memberIds) {
+      await handleSave({
+        date: dateStr,
+        memberId: mid,
+        status: isSet ? "absent" : "pending",
+        score: isSet ? 1 : 0,
+        penaltyDays: isSet ? 1 : 0,
+        isGroupAbsent: isSet,
+        isImportantEvent: false
+      });
+    }
+    setRecords(await driver.listAttendanceRecords());
+  };
+
+  const handleImportantEvent = async (
+    dateStr: string,
+    memberIds: string[],
+    isSet: boolean
+  ) => {
+    for (const mid of memberIds) {
+      await handleSave({
+        date: dateStr,
+        memberId: mid,
+        status: "pending",
+        score: 0,
+        penaltyDays: 0,
+        isImportantEvent: isSet,
+        isGroupAbsent: false
+      });
+    }
+    setRecords(await driver.listAttendanceRecords());
+  };
+
+  const handleResetDay = async (dateStr: string, memberIds: string[]) => {
+    if (driver.deleteAttendanceRecordsByDateAndMembers) {
+      await driver.deleteAttendanceRecordsByDateAndMembers(dateStr, memberIds);
+      setRecords((prev) =>
+        prev.filter(
+          (r) => !(r.date === dateStr && memberIds.includes(r.memberId))
+        )
+      );
+    }
+  };
 
   const handleSave = async (rec: Omit<AttendanceRecord, "id"> & { id?: string }) => {
     const saved = await driver.upsertAttendanceRecord(rec);
@@ -61,19 +138,56 @@ export default function HomePage() {
       <div className="grid gap-4 md:grid-cols-[3fr,2fr]">
         <section className="card p-4">
           {viewMode === "calendar" ? (
-            <div className="h-80 flex items-center justify-center text-sm text-gray-400">
-              月历视图（后续实现具体日历与状态渲染）
-            </div>
+            <MonthCalendarView
+              groups={groups}
+              records={records}
+              scheduleOverrides={overrides}
+              onSave={handleSave}
+              onGroupAbsent={handleGroupAbsent}
+              onImportantEvent={handleImportantEvent}
+              onResetDay={handleResetDay}
+              isAdmin={!!admin}
+            />
           ) : (
-            <WeekListView groups={groups} onSave={handleSave} />
+            <WeekListView
+              groups={groups}
+              records={records}
+              scheduleOverrides={overrides}
+              onSave={handleSave}
+              onOverrideChange={handleOverride}
+              onDeleteOverride={handleDeleteOverride}
+              onGroupAbsent={handleGroupAbsent}
+              onImportantEvent={handleImportantEvent}
+              onResetDay={handleResetDay}
+              isAdmin={!!admin}
+            />
           )}
         </section>
 
         <aside className="space-y-4">
           <section className="card p-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold">管理员登录</h2>
-              <button className="btn-primary text-xs">打开登录弹窗</button>
+              <h2 className="text-sm font-semibold">管理员</h2>
+              {admin ? (
+                <span className="text-xs text-gray-600">
+                  {admin.username}
+                  <button
+                    type="button"
+                    className="ml-2 text-primary hover:underline"
+                    onClick={logout}
+                  >
+                    退出管理
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-primary text-xs"
+                  onClick={() => setShowLogin(true)}
+                >
+                  管理员登录
+                </button>
+              )}
             </div>
             <p className="mt-2 text-xs text-gray-500">
               普通用户仅可查看数据，管理员登录后可进行考勤评价、排班调整、统计查看等操作。
@@ -88,14 +202,16 @@ export default function HomePage() {
                 · 当前运行模式：{driver.isReady() ? "Supabase" : "本地内存"}（配置
                 `.env.local` 后将自动切换到 Supabase）。
               </li>
-              <li>· 管理员相关功能将在单独的后台页面中提供完整入口。</li>
+              <li>· 成员数据来自 Supabase 的 groups / members 表，未配置时使用默认 8 组 24 人。</li>
             </ul>
             <div className="mt-3 text-[11px] text-gray-400">
-              已加载考勤记录：{records.length} 条
+              已加载考勤记录：{records.length} 条 · 值日组：{groups.length} 组
             </div>
           </section>
         </aside>
       </div>
+
+      {showLogin && <LoginModal onClose={() => setShowLogin(false)} />}
     </div>
   );
 }

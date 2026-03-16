@@ -1,5 +1,19 @@
-import { addDays, startOfWeek } from "date-fns";
+import { addDays, getWeek, startOfWeek } from "date-fns";
 import type { Group, Member } from "./types";
+
+/** 获取某年的总周数（ISO 周） */
+export function getWeeksInYear(year: number): number {
+  const dec31 = new Date(year, 11, 31);
+  return getWeek(dec31, { weekStartsOn: 1 });
+}
+
+/** 根据年份和周数得到该周周一日期 */
+export function getDateFromYearWeek(year: number, week: number): Date {
+  const jan4 = new Date(year, 0, 4); // ISO 周：1月4日所在周为第1周
+  const jan4WeekStart = startOfWeek(jan4, { weekStartsOn: 1 });
+  const targetMonday = addDays(jan4WeekStart, (week - 1) * 7);
+  return targetMonday;
+}
 
 export function createDefaultGroups(): Group[] {
   const groups: Group[] = [];
@@ -27,7 +41,7 @@ export function getDefaultGroupForWeek(
   groups: Group[]
 ): Group {
   if (groups.length === 0) {
-    throw new Error("groups 不能为空");
+    return createDefaultGroups()[0];
   }
   // 以周一为一周起点
   const weekStart = startOfWeek(baseDate, { weekStartsOn: 1 });

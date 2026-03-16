@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { driver, groups } from "../lib/appData";
-import type { AttendanceRecord, Member } from "../lib/types";
+import { createDefaultGroups } from "../lib/mockData";
+import { driver } from "../lib/appData";
+import type { AttendanceRecord, Group, Member } from "../lib/types";
 
 type MemberStats = {
   member: Member;
@@ -14,7 +15,7 @@ type MemberStats = {
   perfect: number;
 };
 
-function computeStats(records: AttendanceRecord[]): MemberStats[] {
+function computeStats(records: AttendanceRecord[], groups: Group[]): MemberStats[] {
   const members = groups.flatMap((g) =>
     g.members.map((m) => ({ m, groupName: g.name }))
   );
@@ -44,12 +45,17 @@ function computeStats(records: AttendanceRecord[]): MemberStats[] {
 
 export default function StatisticsPage() {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [groups, setGroups] = useState<Group[]>(() => createDefaultGroups());
 
   useEffect(() => {
     void driver.listAttendanceRecords().then(setRecords).catch(() => setRecords([]));
+    void driver
+      .getGroups()
+      .then((g) => setGroups(g.length > 0 ? g : createDefaultGroups()))
+      .catch(() => {});
   }, []);
 
-  const stats = useMemo(() => computeStats(records), [records]);
+  const stats = useMemo(() => computeStats(records, groups), [records, groups]);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 space-y-4">

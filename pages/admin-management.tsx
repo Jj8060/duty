@@ -1,14 +1,21 @@
+import { GroupsManagement } from "../components/GroupsManagement";
+
 export default function AdminManagementPage() {
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 space-y-4">
+    <div className="mx-auto max-w-6xl px-4 py-6 space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">管理员管理</h1>
           <p className="mt-1 text-sm text-gray-500">
-            终端管理员可以在此添加/禁用管理员账号，并查看管理员操作日志（当前为结构占位，后续接入 Supabase）。
+            终端管理员可以在此添加/禁用管理员账号，管理值日组与成员名称。
           </p>
         </div>
       </div>
+
+      <section className="card p-4">
+        <h2 className="text-sm font-semibold mb-3">值日组与成员名称</h2>
+        <GroupsManagement />
+      </section>
 
       <div className="grid gap-4 md:grid-cols-[2fr,3fr]">
         <section className="card p-4 space-y-3">

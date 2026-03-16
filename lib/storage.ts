@@ -7,6 +7,13 @@ export interface StorageDriver {
 
   getGroups(): Promise<Group[]>;
 
+  getScheduleOverrides?(): Promise<Record<string, string>>;
+  upsertScheduleOverride?(weekStart: string, groupId: string): Promise<void>;
+  deleteScheduleOverride?(weekStart: string): Promise<void>;
+
+  updateGroupName?(id: string, name: string): Promise<void>;
+  updateMemberName?(id: string, name: string): Promise<void>;
+
   upsertAttendanceRecord(
     record: Omit<AttendanceRecord, "id"> & { id?: string }
   ): Promise<AttendanceRecord>;
@@ -15,6 +22,11 @@ export interface StorageDriver {
     fromDate?: string; // yyyy-MM-dd
     toDate?: string; // yyyy-MM-dd
   }): Promise<AttendanceRecord[]>;
+
+  deleteAttendanceRecordsByDateAndMembers?(
+    date: string,
+    memberIds: string[]
+  ): Promise<void>;
 }
 
 export class MemoryDriver implements StorageDriver {
@@ -65,6 +77,30 @@ export class MemoryDriver implements StorageDriver {
       return true;
     });
   }
+
+  private overrides: Record<string, string> = {};
+
+  async getScheduleOverrides(): Promise<Record<string, string>> {
+    return { ...this.overrides };
+  }
+
+  async upsertScheduleOverride(weekStart: string, groupId: string): Promise<void> {
+    this.overrides[weekStart] = groupId;
+  }
+
+  async deleteScheduleOverride(weekStart: string): Promise<void> {
+    delete this.overrides[weekStart];
+  }
+
+  async deleteAttendanceRecordsByDateAndMembers(
+    date: string,
+    memberIds: string[]
+  ): Promise<void> {
+    const ids = new Set(memberIds);
+    this.attendance = this.attendance.filter(
+      (r) => !(r.date === date && ids.has(r.memberId))
+    );
+  }
 }
 
 export class SupabaseDriver implements StorageDriver {
@@ -75,18 +111,73 @@ export class SupabaseDriver implements StorageDriver {
     );
   }
 
+  async getScheduleOverrides(): Promise<Record<string, string>> {
+    const { data, error } = await supabase
+      .from("schedule_overrides")
+      .select("week_start, group_id");
+    if (error) return {};
+    const out: Record<string, string> = {};
+    for (const r of data ?? []) {
+      out[String(r.week_start)] = r.group_id;
+    }
+    return out;
+  }
+
+  async upsertScheduleOverride(weekStart: string, groupId: string): Promise<void> {
+    const { error } = await supabase
+      .from("schedule_overrides")
+      .upsert({ week_start: weekStart, group_id: groupId }, { onConflict: "week_start" });
+    if (error) throw new Error(error.message);
+  }
+
+  async deleteScheduleOverride(weekStart: string): Promise<void> {
+    const { error } = await supabase
+      .from("schedule_overrides")
+      .delete()
+      .eq("week_start", weekStart);
+    if (error) throw new Error(error.message);
+  }
+
+  async updateGroupName(id: string, name: string): Promise<void> {
+    const { error } = await supabase.from("groups").update({ name }).eq("id", id);
+    if (error) throw new Error(error.message);
+  }
+
+  async updateMemberName(id: string, name: string): Promise<void> {
+    const { error } = await supabase.from("members").update({ name }).eq("id", id);
+    if (error) throw new Error(error.message);
+  }
+
   async getGroups(): Promise<Group[]> {
-    // 目前 groups 仍由前端默认生成；后续如需可迁移到 Supabase 表
-    return createDefaultGroups();
+    const { data: groupsRows, error: ge } = await supabase
+      .from("groups")
+      .select("id, name")
+      .order("id");
+    if (ge || !groupsRows?.length) return createDefaultGroups();
+
+    const { data: membersRows, error: me } = await supabase
+      .from("members")
+      .select("id, name, group_id")
+      .order("id");
+    if (me || !membersRows?.length) return createDefaultGroups();
+
+    const byGroup = new Map<string, { id: string; name: string; groupId: string }[]>();
+    for (const r of membersRows as { id: string; name: string; group_id: string }[]) {
+      const list = byGroup.get(r.group_id) ?? [];
+      list.push({ id: r.id, name: r.name, groupId: r.group_id });
+      byGroup.set(r.group_id, list);
+    }
+    return groupsRows.map((g: { id: string; name: string }) => ({
+      id: g.id,
+      name: g.name,
+      members: byGroup.get(g.id) ?? []
+    }));
   }
 
   async upsertAttendanceRecord(
     record: Omit<AttendanceRecord, "id"> & { id?: string }
   ): Promise<AttendanceRecord> {
-    // 对应策划书：attendance_records 表
-    // 字段映射：memberId -> member_id, penaltyDays -> penalty_days, createdAt/updatedAt -> created_at/updated_at
     const payload = {
-      id: record.id,
       date: record.date,
       member_id: record.memberId,
       status: record.status,
@@ -103,7 +194,7 @@ export class SupabaseDriver implements StorageDriver {
 
     const { data, error } = await supabase
       .from("attendance_records")
-      .upsert(payload)
+      .upsert(payload, { onConflict: "member_id,date" })
       .select(
         "id,date,member_id,status,score,penalty_days,is_substituted,substituted_by,is_exchanged,exchanged_with,is_important_event,is_group_absent,is_compensation,created_at,updated_at"
       )
@@ -130,6 +221,18 @@ export class SupabaseDriver implements StorageDriver {
       createdAt: data.created_at,
       updatedAt: data.updated_at
     };
+  }
+
+  async deleteAttendanceRecordsByDateAndMembers(
+    date: string,
+    memberIds: string[]
+  ): Promise<void> {
+    const { error } = await supabase
+      .from("attendance_records")
+      .delete()
+      .eq("date", date)
+      .in("member_id", memberIds);
+    if (error) throw new Error(error.message);
   }
 
   async listAttendanceRecords(params?: {
