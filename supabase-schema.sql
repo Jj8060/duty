@@ -84,6 +84,8 @@ create table if not exists public.substitution_records (
   note text,
   created_at timestamptz default now()
 );
+create unique index if not exists substitution_records_unique_idx
+  on public.substitution_records(date, original_member_id, substitute_member_id, is_return);
 
 -- 6. 种子数据：默认 8 组、每组 3 人（仅当表为空时执行）
 insert into public.groups (id, name)

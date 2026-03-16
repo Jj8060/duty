@@ -53,6 +53,16 @@ export interface AdminOperationLog {
   createdAt?: string;
 }
 
+export interface SubstitutionRecord {
+  id: string;
+  date: string;
+  originalMemberId: string;
+  substituteMemberId: string;
+  isReturn: boolean;
+  note?: string | null;
+  createdAt?: string;
+}
+
 export interface WeekMeta {
   year: number;
   weekIndex: number;

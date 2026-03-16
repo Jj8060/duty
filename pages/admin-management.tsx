@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { GroupsManagement } from "../components/GroupsManagement";
 import { LoginModal } from "../components/LoginModal";
 import { driver } from "../lib/appData";
 import { useAuth } from "../lib/AuthContext";
 import type { AdminOperationLog } from "../lib/types";
+
+const LOG_PAGE_SIZE = 10;
 
 export default function AdminManagementPage() {
   const { admin, logout } = useAuth();
@@ -25,6 +27,8 @@ export default function AdminManagementPage() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [logs, setLogs] = useState<AdminOperationLog[]>([]);
+  const [logActionFilter, setLogActionFilter] = useState("all");
+  const [logPage, setLogPage] = useState(1);
 
   const loadAdmins = async () => {
     if (!driver.listAdmins) return;
@@ -39,18 +43,46 @@ export default function AdminManagementPage() {
   const loadLogs = async () => {
     if (!driver.listAdminOperationLogs) return;
     try {
-      const data = await driver.listAdminOperationLogs(40);
+      const data = await driver.listAdminOperationLogs(200);
       setLogs(data);
     } catch (e) {
       setMsg(`加载操作日志失败：${String(e)}`);
     }
   };
 
+  const logActionOptions = useMemo(
+    () => Array.from(new Set(logs.map((l) => l.action))),
+    [logs]
+  );
+  const filteredLogs = useMemo(
+    () =>
+      logActionFilter === "all"
+        ? logs
+        : logs.filter((l) => l.action === logActionFilter),
+    [logs, logActionFilter]
+  );
+  const logTotalPages = Math.max(
+    1,
+    Math.ceil(filteredLogs.length / LOG_PAGE_SIZE)
+  );
+  const pagedLogs = useMemo(() => {
+    const start = (logPage - 1) * LOG_PAGE_SIZE;
+    return filteredLogs.slice(start, start + LOG_PAGE_SIZE);
+  }, [filteredLogs, logPage]);
+
   useEffect(() => {
     if (!admin) return;
     void loadAdmins();
     void loadLogs();
   }, [admin]);
+
+  useEffect(() => {
+    setLogPage(1);
+  }, [logActionFilter]);
+
+  useEffect(() => {
+    setLogPage((p) => Math.min(p, logTotalPages));
+  }, [logTotalPages]);
 
   const createAdmin = async () => {
     if (!driver.createAdmin || !admin?.isRoot) return;
@@ -319,15 +351,29 @@ export default function AdminManagementPage() {
         </section>
 
         <section className="card p-4 space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-semibold">管理员操作日志</h2>
-            <button
-              type="button"
-              className="btn-outline text-xs"
-              onClick={() => void loadLogs()}
-            >
-              刷新
-            </button>
+            <div className="flex items-center gap-2">
+              <select
+                className="rounded border border-gray-300 px-2 py-1 text-xs"
+                value={logActionFilter}
+                onChange={(e) => setLogActionFilter(e.target.value)}
+              >
+                <option value="all">全部动作</option>
+                {logActionOptions.map((action) => (
+                  <option key={action} value={action}>
+                    {action}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="btn-outline text-xs"
+                onClick={() => void loadLogs()}
+              >
+                刷新
+              </button>
+            </div>
           </div>
           <div className="max-h-64 overflow-auto rounded border border-gray-100">
             <table className="min-w-full text-left text-xs">
@@ -340,14 +386,14 @@ export default function AdminManagementPage() {
                 </tr>
               </thead>
               <tbody className="divide-y bg-white">
-                {logs.length === 0 ? (
+                {pagedLogs.length === 0 ? (
                   <tr>
                     <td className="px-3 py-2 text-gray-400" colSpan={4}>
                       暂无日志
                     </td>
                   </tr>
                 ) : (
-                  logs.map((log) => (
+                  pagedLogs.map((log) => (
                     <tr key={log.id}>
                       <td className="px-3 py-2 text-gray-500">
                         {log.createdAt ? log.createdAt.replace("T", " ").slice(0, 19) : "-"}
@@ -360,6 +406,30 @@ export default function AdminManagementPage() {
                 )}
               </tbody>
             </table>
+          </div>
+          <div className="flex items-center justify-between text-xs text-gray-500">
+            <span>
+              第 {Math.min(logPage, logTotalPages)} / {logTotalPages} 页 · 共{" "}
+              {filteredLogs.length} 条
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="btn-outline text-xs disabled:opacity-50"
+                disabled={logPage <= 1}
+                onClick={() => setLogPage((p) => Math.max(1, p - 1))}
+              >
+                上一页
+              </button>
+              <button
+                type="button"
+                className="btn-outline text-xs disabled:opacity-50"
+                disabled={logPage >= logTotalPages}
+                onClick={() => setLogPage((p) => Math.min(logTotalPages, p + 1))}
+              >
+                下一页
+              </button>
+            </div>
           </div>
         </section>
       </div>

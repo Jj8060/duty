@@ -160,6 +160,24 @@ export default function HomePage() {
 
   const handleSave = async (rec: Omit<AttendanceRecord, "id"> & { id?: string }) => {
     const saved = await driver.upsertAttendanceRecord(rec);
+    if (driver.upsertSubstitutionRecord) {
+      if (saved.isSubstituted && saved.substitutedBy) {
+        await driver.upsertSubstitutionRecord({
+          date: saved.date,
+          originalMemberId: saved.memberId,
+          substituteMemberId: saved.substitutedBy,
+          isReturn: false
+        });
+      }
+      if (saved.isExchanged && saved.exchangedWith) {
+        await driver.upsertSubstitutionRecord({
+          date: saved.date,
+          originalMemberId: saved.memberId,
+          substituteMemberId: saved.exchangedWith,
+          isReturn: true
+        });
+      }
+    }
     if (admin) {
       await driver.logAdminOperation?.({
         operatorUsername: admin.username,

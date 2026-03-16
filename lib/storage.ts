@@ -1,4 +1,10 @@
-import type { AdminOperationLog, AttendanceRecord, ExtraDuty, Group } from "./types";
+import type {
+  AdminOperationLog,
+  AttendanceRecord,
+  ExtraDuty,
+  Group,
+  SubstitutionRecord
+} from "./types";
 import { supabase } from "./supabaseClient";
 import { createDefaultGroups } from "./mockData";
 
@@ -40,6 +46,17 @@ export interface StorageDriver {
     detail?: Record<string, any>;
   }): Promise<void>;
   listAdminOperationLogs?(limit?: number): Promise<AdminOperationLog[]>;
+  upsertSubstitutionRecord?(params: {
+    date: string;
+    originalMemberId: string;
+    substituteMemberId: string;
+    isReturn?: boolean;
+    note?: string | null;
+  }): Promise<void>;
+  listSubstitutionRecords?(params?: {
+    fromDate?: string;
+    toDate?: string;
+  }): Promise<SubstitutionRecord[]>;
 
   listExtraDuties?(params?: {
     fromDate?: string;
@@ -68,6 +85,7 @@ export class MemoryDriver implements StorageDriver {
   private groups: Group[];
   private attendance: AttendanceRecord[] = [];
   private extraDuties: ExtraDuty[] = [];
+  private substitutions: SubstitutionRecord[] = [];
   private admins: {
     id: string;
     username: string;
@@ -231,6 +249,49 @@ export class MemoryDriver implements StorageDriver {
 
   async listAdminOperationLogs(limit = 30): Promise<AdminOperationLog[]> {
     return this.adminLogs.slice(0, Math.max(1, limit));
+  }
+
+  async upsertSubstitutionRecord(params: {
+    date: string;
+    originalMemberId: string;
+    substituteMemberId: string;
+    isReturn?: boolean;
+    note?: string | null;
+  }): Promise<void> {
+    const isReturn = Boolean(params.isReturn);
+    const idx = this.substitutions.findIndex(
+      (s) =>
+        s.date === params.date &&
+        s.originalMemberId === params.originalMemberId &&
+        s.substituteMemberId === params.substituteMemberId &&
+        s.isReturn === isReturn
+    );
+    const full: SubstitutionRecord = {
+      id: idx >= 0 ? this.substitutions[idx].id : `sub-${Date.now()}`,
+      date: params.date,
+      originalMemberId: params.originalMemberId,
+      substituteMemberId: params.substituteMemberId,
+      isReturn,
+      note: params.note ?? null,
+      createdAt:
+        idx >= 0 ? this.substitutions[idx].createdAt : new Date().toISOString()
+    };
+    if (idx >= 0) {
+      this.substitutions[idx] = full;
+    } else {
+      this.substitutions.push(full);
+    }
+  }
+
+  async listSubstitutionRecords(params?: {
+    fromDate?: string;
+    toDate?: string;
+  }): Promise<SubstitutionRecord[]> {
+    return this.substitutions.filter((s) => {
+      if (params?.fromDate && s.date < params.fromDate) return false;
+      if (params?.toDate && s.date > params.toDate) return false;
+      return true;
+    });
   }
 
   async listExtraDuties(params?: {
@@ -495,6 +556,54 @@ export class SupabaseDriver implements StorageDriver {
       action: r.action,
       target: r.target,
       detail: r.detail,
+      createdAt: r.created_at
+    }));
+  }
+
+  async upsertSubstitutionRecord(params: {
+    date: string;
+    originalMemberId: string;
+    substituteMemberId: string;
+    isReturn?: boolean;
+    note?: string | null;
+  }): Promise<void> {
+    const payload = {
+      date: params.date,
+      original_member_id: params.originalMemberId,
+      substitute_member_id: params.substituteMemberId,
+      is_return: Boolean(params.isReturn),
+      note: params.note ?? null
+    };
+    const { error } = await supabase
+      .from("substitution_records")
+      .upsert(payload, {
+        onConflict:
+          "date,original_member_id,substitute_member_id,is_return"
+      });
+    if (error) throw new Error(error.message);
+  }
+
+  async listSubstitutionRecords(params?: {
+    fromDate?: string;
+    toDate?: string;
+  }): Promise<SubstitutionRecord[]> {
+    let q = supabase
+      .from("substitution_records")
+      .select(
+        "id,date,original_member_id,substitute_member_id,is_return,note,created_at"
+      )
+      .order("date", { ascending: false });
+    if (params?.fromDate) q = q.gte("date", params.fromDate);
+    if (params?.toDate) q = q.lte("date", params.toDate);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((r: any) => ({
+      id: r.id,
+      date: r.date,
+      originalMemberId: r.original_member_id,
+      substituteMemberId: r.substitute_member_id,
+      isReturn: Boolean(r.is_return),
+      note: r.note,
       createdAt: r.created_at
     }));
   }
