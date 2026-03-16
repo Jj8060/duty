@@ -44,6 +44,15 @@ export interface ExtraDuty {
   createdAt?: string;
 }
 
+export interface AdminOperationLog {
+  id: string;
+  operatorUsername: string;
+  action: string;
+  target?: string | null;
+  detail?: Record<string, any> | null;
+  createdAt?: string;
+}
+
 export interface WeekMeta {
   year: number;
   weekIndex: number;

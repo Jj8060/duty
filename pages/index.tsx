@@ -51,12 +51,27 @@ export default function HomePage() {
   const handleOverride = async (weekStart: string, groupId: string) => {
     if (!driver.upsertScheduleOverride) return;
     await driver.upsertScheduleOverride(weekStart, groupId);
+    if (admin) {
+      await driver.logAdminOperation?.({
+        operatorUsername: admin.username,
+        action: "set_schedule_override",
+        target: weekStart,
+        detail: { groupId }
+      });
+    }
     setOverrides((prev) => ({ ...prev, [weekStart]: groupId }));
   };
 
   const handleDeleteOverride = async (weekStart: string) => {
     if (!driver.deleteScheduleOverride) return;
     await driver.deleteScheduleOverride(weekStart);
+    if (admin) {
+      await driver.logAdminOperation?.({
+        operatorUsername: admin.username,
+        action: "delete_schedule_override",
+        target: weekStart
+      });
+    }
     setOverrides((prev) => {
       const next = { ...prev };
       delete next[weekStart];
@@ -86,6 +101,14 @@ export default function HomePage() {
         isImportantEvent: false
       });
     }
+    if (admin) {
+      await driver.logAdminOperation?.({
+        operatorUsername: admin.username,
+        action: isSet ? "set_group_absent" : "unset_group_absent",
+        target: dateStr,
+        detail: { memberCount: memberIds.length }
+      });
+    }
     setRecords(await driver.listAttendanceRecords());
   };
 
@@ -105,12 +128,28 @@ export default function HomePage() {
         isGroupAbsent: false
       });
     }
+    if (admin) {
+      await driver.logAdminOperation?.({
+        operatorUsername: admin.username,
+        action: isSet ? "set_important_event" : "unset_important_event",
+        target: dateStr,
+        detail: { memberCount: memberIds.length }
+      });
+    }
     setRecords(await driver.listAttendanceRecords());
   };
 
   const handleResetDay = async (dateStr: string, memberIds: string[]) => {
     if (driver.deleteAttendanceRecordsByDateAndMembers) {
       await driver.deleteAttendanceRecordsByDateAndMembers(dateStr, memberIds);
+      if (admin) {
+        await driver.logAdminOperation?.({
+          operatorUsername: admin.username,
+          action: "reset_day_records",
+          target: dateStr,
+          detail: { memberCount: memberIds.length }
+        });
+      }
       setRecords((prev) =>
         prev.filter(
           (r) => !(r.date === dateStr && memberIds.includes(r.memberId))
@@ -121,6 +160,18 @@ export default function HomePage() {
 
   const handleSave = async (rec: Omit<AttendanceRecord, "id"> & { id?: string }) => {
     const saved = await driver.upsertAttendanceRecord(rec);
+    if (admin) {
+      await driver.logAdminOperation?.({
+        operatorUsername: admin.username,
+        action: "upsert_attendance_record",
+        target: `${saved.memberId}@${saved.date}`,
+        detail: {
+          status: saved.status,
+          score: saved.score,
+          penaltyDays: saved.penaltyDays
+        }
+      });
+    }
     setRecords((prev) => {
       const idx = prev.findIndex((r) => r.id === saved.id);
       if (idx >= 0) {
@@ -141,6 +192,14 @@ export default function HomePage() {
         memberId: extraMemberId,
         reason: extraReason || null
       });
+      if (admin) {
+        await driver.logAdminOperation?.({
+          operatorUsername: admin.username,
+          action: "add_extra_duty",
+          target: `${saved.memberId}@${saved.date}`,
+          detail: { reason: saved.reason ?? null }
+        });
+      }
       setExtraDuties((prev) => [saved, ...prev].sort((a, b) => (a.date < b.date ? 1 : -1)));
       setExtraReason("");
       setExtraMsg("额外值日已添加");
@@ -153,7 +212,15 @@ export default function HomePage() {
     if (!driver.deleteExtraDuty) return;
     setExtraMsg(null);
     try {
+      const target = extraDuties.find((d) => d.id === id);
       await driver.deleteExtraDuty(id);
+      if (admin) {
+        await driver.logAdminOperation?.({
+          operatorUsername: admin.username,
+          action: "delete_extra_duty",
+          target: target ? `${target.memberId}@${target.date}` : id
+        });
+      }
       setExtraDuties((prev) => prev.filter((d) => d.id !== id));
       setExtraMsg("额外值日已删除");
     } catch (e) {

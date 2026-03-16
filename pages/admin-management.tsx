@@ -3,6 +3,7 @@ import { GroupsManagement } from "../components/GroupsManagement";
 import { LoginModal } from "../components/LoginModal";
 import { driver } from "../lib/appData";
 import { useAuth } from "../lib/AuthContext";
+import type { AdminOperationLog } from "../lib/types";
 
 export default function AdminManagementPage() {
   const { admin, logout } = useAuth();
@@ -18,8 +19,12 @@ export default function AdminManagementPage() {
   >([]);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [logs, setLogs] = useState<AdminOperationLog[]>([]);
 
   const loadAdmins = async () => {
     if (!driver.listAdmins) return;
@@ -31,9 +36,20 @@ export default function AdminManagementPage() {
     }
   };
 
+  const loadLogs = async () => {
+    if (!driver.listAdminOperationLogs) return;
+    try {
+      const data = await driver.listAdminOperationLogs(40);
+      setLogs(data);
+    } catch (e) {
+      setMsg(`加载操作日志失败：${String(e)}`);
+    }
+  };
+
   useEffect(() => {
     if (!admin) return;
     void loadAdmins();
+    void loadLogs();
   }, [admin]);
 
   const createAdmin = async () => {
@@ -48,10 +64,16 @@ export default function AdminManagementPage() {
     setMsg(null);
     try {
       await driver.createAdmin({ username: u, password: p, isRoot: false });
+      await driver.logAdminOperation?.({
+        operatorUsername: admin.username,
+        action: "create_admin",
+        target: u
+      });
       setUsername("");
       setPassword("");
       setMsg("管理员已添加");
       await loadAdmins();
+      await loadLogs();
     } catch (e) {
       setMsg(`添加失败：${String(e)}`);
     } finally {
@@ -65,10 +87,52 @@ export default function AdminManagementPage() {
     setMsg(null);
     try {
       await driver.setAdminDisabled(id, disabled);
+      const targetAdmin = rows.find((r) => r.id === id);
+      await driver.logAdminOperation?.({
+        operatorUsername: admin.username,
+        action: disabled ? "disable_admin" : "enable_admin",
+        target: targetAdmin?.username ?? id
+      });
       setMsg(disabled ? "管理员已禁用" : "管理员已启用");
       await loadAdmins();
+      await loadLogs();
     } catch (e) {
       setMsg(`操作失败：${String(e)}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const changeMyPassword = async () => {
+    if (!driver.updateAdminPassword || !admin) return;
+    if (!oldPassword.trim() || !newPassword.trim()) {
+      setMsg("请输入旧密码和新密码");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setMsg("两次新密码不一致");
+      return;
+    }
+    setLoading(true);
+    setMsg(null);
+    try {
+      await driver.updateAdminPassword({
+        username: admin.username,
+        oldPassword,
+        newPassword
+      });
+      await driver.logAdminOperation?.({
+        operatorUsername: admin.username,
+        action: "change_password",
+        target: admin.username
+      });
+      setOldPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setMsg("密码修改成功");
+      await loadLogs();
+    } catch (e) {
+      setMsg(`修改失败：${String(e)}`);
     } finally {
       setLoading(false);
     }
@@ -202,6 +266,98 @@ export default function AdminManagementPage() {
                     </td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-[2fr,3fr]">
+        <section className="card p-4 space-y-3">
+          <h2 className="text-sm font-semibold">修改我的密码</h2>
+          <div className="space-y-2 text-xs">
+            <div>
+              <label className="mb-1 block text-gray-600">旧密码</label>
+              <input
+                type="password"
+                className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs"
+                value={oldPassword}
+                onChange={(e) => setOldPassword(e.target.value)}
+                disabled={loading}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-gray-600">新密码</label>
+              <input
+                type="password"
+                className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                disabled={loading}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-gray-600">确认新密码</label>
+              <input
+                type="password"
+                className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                disabled={loading}
+              />
+            </div>
+            <div className="flex justify-end pt-1">
+              <button
+                className="btn-primary text-xs disabled:opacity-50"
+                disabled={loading}
+                onClick={() => void changeMyPassword()}
+              >
+                {loading ? "提交中…" : "修改密码"}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="card p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold">管理员操作日志</h2>
+            <button
+              type="button"
+              className="btn-outline text-xs"
+              onClick={() => void loadLogs()}
+            >
+              刷新
+            </button>
+          </div>
+          <div className="max-h-64 overflow-auto rounded border border-gray-100">
+            <table className="min-w-full text-left text-xs">
+              <thead className="bg-gray-50 text-gray-600">
+                <tr>
+                  <th className="px-3 py-2">时间</th>
+                  <th className="px-3 py-2">操作者</th>
+                  <th className="px-3 py-2">动作</th>
+                  <th className="px-3 py-2">目标</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y bg-white">
+                {logs.length === 0 ? (
+                  <tr>
+                    <td className="px-3 py-2 text-gray-400" colSpan={4}>
+                      暂无日志
+                    </td>
+                  </tr>
+                ) : (
+                  logs.map((log) => (
+                    <tr key={log.id}>
+                      <td className="px-3 py-2 text-gray-500">
+                        {log.createdAt ? log.createdAt.replace("T", " ").slice(0, 19) : "-"}
+                      </td>
+                      <td className="px-3 py-2">{log.operatorUsername}</td>
+                      <td className="px-3 py-2">{log.action}</td>
+                      <td className="px-3 py-2 text-gray-600">{log.target ?? "-"}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>

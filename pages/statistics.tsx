@@ -54,6 +54,12 @@ export default function StatisticsPage() {
     setMessage(null);
     try {
       await driver.deleteAttendanceRecord(id);
+      const deleted = records.find((r) => r.id === id);
+      await driver.logAdminOperation?.({
+        operatorUsername: admin.username,
+        action: "delete_attendance_record",
+        target: deleted ? `${deleted.memberId}@${deleted.date}` : id
+      });
       setRecords((prev) => prev.filter((r) => r.id !== id));
       setMessage("记录已删除");
     } catch (e) {

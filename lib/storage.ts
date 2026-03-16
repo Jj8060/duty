@@ -1,4 +1,4 @@
-import type { AttendanceRecord, ExtraDuty, Group } from "./types";
+import type { AdminOperationLog, AttendanceRecord, ExtraDuty, Group } from "./types";
 import { supabase } from "./supabaseClient";
 import { createDefaultGroups } from "./mockData";
 
@@ -28,6 +28,18 @@ export interface StorageDriver {
     isRoot?: boolean;
   }): Promise<void>;
   setAdminDisabled?(id: string, disabled: boolean): Promise<void>;
+  updateAdminPassword?(params: {
+    username: string;
+    oldPassword: string;
+    newPassword: string;
+  }): Promise<void>;
+  logAdminOperation?(params: {
+    operatorUsername: string;
+    action: string;
+    target?: string;
+    detail?: Record<string, any>;
+  }): Promise<void>;
+  listAdminOperationLogs?(limit?: number): Promise<AdminOperationLog[]>;
 
   listExtraDuties?(params?: {
     fromDate?: string;
@@ -73,6 +85,7 @@ export class MemoryDriver implements StorageDriver {
       createdAt: new Date().toISOString()
     }
   ];
+  private adminLogs: AdminOperationLog[] = [];
 
   constructor(groups: Group[]) {
     this.groups = groups;
@@ -186,6 +199,38 @@ export class MemoryDriver implements StorageDriver {
     this.admins = this.admins.map((a) =>
       a.id === id ? { ...a, isDisabled: disabled } : a
     );
+  }
+
+  async updateAdminPassword(params: {
+    username: string;
+    oldPassword: string;
+    newPassword: string;
+  }): Promise<void> {
+    const idx = this.admins.findIndex(
+      (a) => a.username === params.username && a.password === params.oldPassword
+    );
+    if (idx < 0) throw new Error("旧密码不正确");
+    this.admins[idx] = { ...this.admins[idx], password: params.newPassword };
+  }
+
+  async logAdminOperation(params: {
+    operatorUsername: string;
+    action: string;
+    target?: string;
+    detail?: Record<string, any>;
+  }): Promise<void> {
+    this.adminLogs.unshift({
+      id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      operatorUsername: params.operatorUsername,
+      action: params.action,
+      target: params.target ?? null,
+      detail: params.detail ?? null,
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  async listAdminOperationLogs(limit = 30): Promise<AdminOperationLog[]> {
+    return this.adminLogs.slice(0, Math.max(1, limit));
   }
 
   async listExtraDuties(params?: {
@@ -404,6 +449,54 @@ export class SupabaseDriver implements StorageDriver {
       .update({ is_disabled: disabled })
       .eq("id", id);
     if (error) throw new Error(error.message);
+  }
+
+  async updateAdminPassword(params: {
+    username: string;
+    oldPassword: string;
+    newPassword: string;
+  }): Promise<void> {
+    const { data, error } = await supabase
+      .from("admins")
+      .update({ password: params.newPassword })
+      .eq("username", params.username)
+      .eq("password", params.oldPassword)
+      .select("id")
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) throw new Error("旧密码不正确");
+  }
+
+  async logAdminOperation(params: {
+    operatorUsername: string;
+    action: string;
+    target?: string;
+    detail?: Record<string, any>;
+  }): Promise<void> {
+    const { error } = await supabase.from("admin_operation_logs").insert({
+      operator_username: params.operatorUsername,
+      action: params.action,
+      target: params.target ?? null,
+      detail: params.detail ?? null
+    });
+    if (error) throw new Error(error.message);
+  }
+
+  async listAdminOperationLogs(limit = 30): Promise<AdminOperationLog[]> {
+    const { data, error } = await supabase
+      .from("admin_operation_logs")
+      .select("id,operator_username,action,target,detail,created_at")
+      .order("created_at", { ascending: false })
+      .limit(Math.max(1, limit));
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((r: any) => ({
+      id: r.id,
+      operatorUsername: r.operator_username,
+      action: r.action,
+      target: r.target,
+      detail: r.detail,
+      createdAt: r.created_at
+    }));
   }
 
   async listExtraDuties(params?: {
