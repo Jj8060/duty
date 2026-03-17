@@ -4,6 +4,8 @@ export type MemberStats = {
   member: Member;
   groupName: string;
   avgScore: number | null;
+  /** 有效评分记录数（score > 0 的记录条数），用于低分预警“至少2条才预警” */
+  validScoreCount: number;
   /** 惩罚天数-正常：所有记录 penaltyDays 的代数和（含补值减免的负值） */
   totalPenaltyDays: number;
   /** 惩罚天数累计：只累加正值，不抵消 */
@@ -50,6 +52,7 @@ export function computeMemberStats(
       member: m,
       groupName,
       avgScore: avg,
+      validScoreCount: validScores.length,
       totalPenaltyDays: totalPenalty,
       cumulativePenaltyDays: cumulativePenalty,
       present: count("present"),
@@ -62,13 +65,17 @@ export function computeMemberStats(
   });
 }
 
+/**
+ * 低分预警：仅当「平均分大于0且小于2分」且「至少有2条有效评分记录」时显示（与功能策划书 3.6.1 一致）。
+ */
 export function getLowScoreWarnings(stats: MemberStats[]): MemberStats[] {
   return stats
     .filter(
       (s) =>
-        (s.avgScore !== null && s.avgScore < 2) ||
-        s.fail >= 2 ||
-        s.absent >= 2
+        s.avgScore !== null &&
+        s.avgScore > 0 &&
+        s.avgScore < 2 &&
+        s.validScoreCount >= 2
     )
     .sort((a, b) => {
       const aScore = a.avgScore ?? 999;
