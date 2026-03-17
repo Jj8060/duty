@@ -282,6 +282,7 @@ export default function HomePage() {
               groups={groups}
               records={records}
               scheduleOverrides={overrides}
+              extraDuties={extraDuties}
               onSave={handleSave}
               onGroupAbsent={handleGroupAbsent}
               onImportantEvent={handleImportantEvent}

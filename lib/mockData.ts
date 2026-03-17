@@ -1,10 +1,18 @@
 import { addDays, getWeek, startOfWeek } from "date-fns";
 import type { Group, Member } from "./types";
 
-/** 获取某年的总周数（ISO 周） */
+/** 获取某年的总周数
+ *  注意：某些年份的 12月28-31 日属于下一年第1周（例如 2026 年）
+ *  此时 getWeek(dec31) 会返回 1，需退而检查 12月24 日，
+ *  该日期永远处于当年最后几周内（周1系统下最早的"第1周"起点为12月26日）。
+ */
 export function getWeeksInYear(year: number): number {
   const dec31 = new Date(year, 11, 31);
-  return getWeek(dec31, { weekStartsOn: 1 });
+  const w = getWeek(dec31, { weekStartsOn: 1 });
+  if (w === 1) {
+    return getWeek(new Date(year, 11, 24), { weekStartsOn: 1 });
+  }
+  return w;
 }
 
 /** 根据年份和周数得到该周周一日期 */

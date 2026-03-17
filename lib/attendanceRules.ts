@@ -11,7 +11,7 @@ export function getDefaultScoreByStatus(status: AttendanceStatusCode): number {
     case "fail":
       return 1;
     case "absent":
-      return 0;
+      return 1;
     case "pending":
     default:
       return 0;

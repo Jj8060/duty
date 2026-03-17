@@ -1,4 +1,4 @@
-import { format, getWeek, startOfWeek } from "date-fns";
+import { addDays, format, getWeek, startOfWeek } from "date-fns";
 import { useMemo, useState } from "react";
 import {
   getDateFromYearWeek,
@@ -137,7 +137,7 @@ export function WeekListView(props: {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2 text-sm text-gray-500">
+          <div className="flex items-center gap-2 text-sm font-medium text-gray-600">
             <span>当前周值日组：</span>
             {props.isAdmin && props.onOverrideChange ? (
               <select
@@ -161,16 +161,16 @@ export function WeekListView(props: {
               <span className="font-semibold text-gray-900">{weekGroup.name}</span>
             )}
           </div>
-          <div className="mt-1 text-xs text-gray-400">
+          <div className="mt-1 text-sm text-gray-500">
             日期范围：
             {format(displayDays[0], "MM月dd日")} -{" "}
             {format(displayDays[displayDays.length - 1], "MM月dd日")}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-gray-500">周选择：</span>
+          <span className="text-sm text-gray-500">周选择：</span>
           <select
-            className="rounded border border-gray-300 px-2 py-1 text-xs"
+            className="rounded border border-gray-300 px-2 py-1 text-sm"
             value={year}
             onChange={(e) => goToWeek(Number(e.target.value), weekNum)}
           >
@@ -179,22 +179,35 @@ export function WeekListView(props: {
             ))}
           </select>
           <select
-            className="rounded border border-gray-300 px-2 py-1 text-xs"
+            className="rounded border border-gray-300 px-2 py-1 text-sm"
             value={weekNum}
             onChange={(e) => goToWeek(year, Number(e.target.value))}
           >
-            {Array.from({ length: maxWeeks }, (_, i) => i + 1).map((w) => (
-              <option key={w} value={w}>第{w}周</option>
-            ))}
+            {Array.from({ length: maxWeeks }, (_, i) => i + 1).map((w) => {
+              const mon = getDateFromYearWeek(year, w);
+              const sun = addDays(mon, 6);
+              const crossYear = mon.getFullYear() !== sun.getFullYear();
+              const monLabel = crossYear
+                ? format(mon, "yyyy年M月d日")
+                : format(mon, "M月d日");
+              const sunLabel = crossYear
+                ? format(sun, "yyyy年M月d日")
+                : format(sun, "M月d日");
+              return (
+                <option key={w} value={w}>
+                  {`第${w}周（${monLabel}～${sunLabel}）`}
+                </option>
+              );
+            })}
           </select>
           <button
             type="button"
-            className="btn-outline text-xs"
+            className="btn-outline text-sm"
             onClick={goToToday}
           >
             回到今天
           </button>
-          <label className="flex items-center gap-1.5 text-xs text-gray-600">
+          <label className="flex items-center gap-1.5 text-sm text-gray-600">
             <input
               type="checkbox"
               checked={includeWeekend}
@@ -206,7 +219,7 @@ export function WeekListView(props: {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="min-w-full text-left text-xs">
+        <table className="min-w-full text-left text-sm">
           <thead className="bg-gray-50 text-gray-600">
             <tr>
               <th className="px-3 py-2">日期</th>
@@ -232,37 +245,41 @@ export function WeekListView(props: {
               const isImportantEvent = dayRecords.some((r) => r.isImportantEvent);
               return (
                 <tr key={day.toISOString()}>
-                  <td className="px-3 py-2 align-top whitespace-nowrap">
-                    <div className="text-xs">
-                      {format(day, "MM-dd")}
-                    </div>
+                  <td className="px-3 py-2 align-top whitespace-nowrap font-medium">
+                    {format(day, "MM月dd日")}
                   </td>
-                  <td className="px-3 py-2 align-top text-xs text-gray-500">
+                  <td className="px-3 py-2 align-top text-gray-500">
                     周{weekday}
                   </td>
-                  <td className="px-3 py-2 align-top text-xs text-gray-700">
+                  <td className="px-3 py-2 align-top text-gray-700">
                     {weekGroup.name}
                   </td>
                   <td className="px-3 py-2 align-top">
                     <div className="flex flex-wrap gap-2">
-                      {weekGroup.members.map((m) => (
-                        <button
-                          key={m.id}
-                          type="button"
-                          className={`rounded-md border px-2 py-1 text-xs ${
-                            props.isAdmin
-                              ? "border-gray-200 hover:border-primary hover:text-primary"
-                              : "border-gray-100 text-gray-400 cursor-not-allowed"
-                          }`}
-                          disabled={!props.isAdmin}
-                          onClick={() => openForm(m, day)}
-                        >
-                          {m.name}
-                          <span className="ml-1 text-[10px] text-gray-400">
-                            评价
-                          </span>
-                        </button>
-                      ))}
+                      {weekGroup.members.map((m) => {
+                        const rec = dayRecords.find((r) => r.memberId === m.id);
+                        const evaluated = rec && rec.status !== "pending";
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            className={`rounded-md border px-2 py-1 text-sm ${
+                              evaluated
+                                ? "border-green-300 text-green-700 bg-green-50"
+                                : props.isAdmin
+                                  ? "border-gray-200 hover:border-primary hover:text-primary"
+                                  : "border-gray-100 text-gray-400 cursor-not-allowed"
+                            }`}
+                            disabled={!props.isAdmin}
+                            onClick={() => openForm(m, day)}
+                          >
+                            {m.name}
+                            <span className="ml-1 text-xs text-gray-400">
+                              {evaluated ? "✓" : "评价"}
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </td>
                   {props.isAdmin && (
@@ -270,7 +287,7 @@ export function WeekListView(props: {
                       <div className="flex flex-wrap gap-1">
                         <button
                           type="button"
-                          className="rounded border border-red-200 px-1.5 py-0.5 text-[10px] text-red-600 hover:bg-red-50"
+                          className="rounded border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
                           title="全体缺勤"
                           onClick={() =>
                             void props.onGroupAbsent?.(
@@ -280,11 +297,11 @@ export function WeekListView(props: {
                             )
                           }
                         >
-                          {isGroupAbsent ? "取消缺勤" : "缺"}
+                          {isGroupAbsent ? "取消缺勤" : "全体缺勤"}
                         </button>
                         <button
                           type="button"
-                          className="rounded border border-amber-200 px-1.5 py-0.5 text-[10px] text-amber-600 hover:bg-amber-50"
+                          className="rounded border border-amber-200 px-2 py-0.5 text-xs text-amber-600 hover:bg-amber-50"
                           title="重大活动"
                           onClick={() =>
                             void props.onImportantEvent?.(
@@ -294,11 +311,11 @@ export function WeekListView(props: {
                             )
                           }
                         >
-                          {isImportantEvent ? "取消活动" : "活"}
+                          {isImportantEvent ? "取消活动" : "重大活动"}
                         </button>
                         <button
                           type="button"
-                          className="rounded border border-gray-200 px-1.5 py-0.5 text-[10px] text-gray-600 hover:bg-gray-50"
+                          className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50"
                           title="重置当天"
                           onClick={() =>
                             void props.onResetDay?.(dateStr, memberIds)
@@ -320,16 +337,16 @@ export function WeekListView(props: {
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30">
           <div className="card w-full max-w-md p-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold">考勤评价</h2>
+              <h2 className="text-base font-semibold">考勤评价</h2>
               <button
                 type="button"
-                className="text-xs text-gray-400 hover:text-gray-600"
+                className="text-sm text-gray-400 hover:text-gray-600"
                 onClick={closeForm}
               >
                 关闭
               </button>
             </div>
-            <div className="mt-3 space-y-3 text-xs">
+            <div className="mt-3 space-y-3 text-sm">
               <div className="flex justify-between text-gray-600">
                 <span>成员：{form.member?.name}</span>
                 <span>日期：{form.date}</span>
@@ -338,7 +355,7 @@ export function WeekListView(props: {
               <div className="space-y-1">
                 <label className="block text-gray-600">出勤状态</label>
                 <select
-                  className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs"
+                  className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
                   value={form.status}
                   onChange={(e) =>
                     setForm((prev) =>
@@ -368,11 +385,11 @@ export function WeekListView(props: {
               <div className="flex gap-3">
                 <div className="flex-1 space-y-1">
                   <label className="block text-gray-600">评分（0-4）</label>
-                  <input
+                    <input
                     type="number"
                     min={0}
                     max={4}
-                    className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs"
+                    className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
                     value={form.score}
                     onChange={(e) =>
                       setForm((prev) =>
@@ -388,10 +405,10 @@ export function WeekListView(props: {
                 </div>
                 <div className="flex-1 space-y-1">
                   <label className="block text-gray-600">惩罚天数</label>
-                  <input
+                    <input
                     type="number"
                     min={0}
-                    className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs"
+                    className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
                     value={form.penaltyDays}
                     onChange={(e) =>
                       setForm((prev) =>
@@ -513,17 +530,17 @@ export function WeekListView(props: {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+                <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  className="btn-outline text-xs"
+                  className="btn-outline text-sm"
                   onClick={closeForm}
                 >
                   取消
                 </button>
                 <button
                   type="button"
-                  className="btn-primary text-xs"
+                  className="btn-primary text-sm"
                   onClick={handleSave}
                 >
                   保存

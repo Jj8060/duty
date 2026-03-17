@@ -4,7 +4,7 @@ import { createDefaultGroups } from "../lib/mockData";
 import { driver } from "../lib/appData";
 import { useAuth } from "../lib/AuthContext";
 import { computeMemberStats, getLowScoreWarnings } from "../lib/statistics";
-import type { AttendanceRecord, Group, Member } from "../lib/types";
+import type { AttendanceRecord, Group } from "../lib/types";
 
 const GROUP_BADGE_COLORS = [
   "bg-blue-100 text-blue-700",
@@ -23,6 +23,7 @@ export default function StatisticsPage() {
   const [groups, setGroups] = useState<Group[]>(() => createDefaultGroups());
   const [selectedGroupId, setSelectedGroupId] = useState<string>("all");
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  const [subListMemberId, setSubListMemberId] = useState<string | null>(null);
   const [showLogin, setShowLogin] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -179,8 +180,10 @@ export default function StatisticsPage() {
                 <th className="px-3 py-2">组别</th>
                 <th className="px-3 py-2">成员</th>
                 <th className="px-3 py-2">平均分</th>
-                <th className="px-3 py-2">惩罚天数</th>
+                <th className="px-3 py-2">惩罚-累计</th>
+                <th className="px-3 py-2">惩罚-正常</th>
                 <th className="px-3 py-2">考勤情况</th>
+                <th className="px-3 py-2">代值</th>
                 <th className="px-3 py-2">操作</th>
               </tr>
             </thead>
@@ -221,13 +224,26 @@ export default function StatisticsPage() {
                     {s.avgScore === null ? "-" : s.avgScore.toFixed(1)}
                   </td>
                   <td className="px-3 py-2 text-gray-700">
-                    {s.totalPenaltyDays >= 0
-                      ? `+${s.totalPenaltyDays} 天`
-                      : `${s.totalPenaltyDays} 天`}
+                    +{s.cumulativePenaltyDays} 天
+                  </td>
+                  <td className={`px-3 py-2 ${s.totalPenaltyDays > 0 ? "text-red-600" : s.totalPenaltyDays < 0 ? "text-green-600" : "text-gray-500"}`}>
+                    {s.totalPenaltyDays >= 0 ? `+${s.totalPenaltyDays}` : s.totalPenaltyDays} 天
                   </td>
                   <td className="px-3 py-2 text-gray-500">
                     已到 {s.present} · 待改进 {s.improve} · 缺席 {s.absent} · 不合格{" "}
                     {s.fail} · 优秀 {s.perfect}
+                  </td>
+                  <td className="px-3 py-2">
+                    {s.substitutedForIds.length > 0 ? (
+                      <button
+                        className="rounded border border-blue-200 px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
+                        onClick={() => setSubListMemberId(s.member.id)}
+                      >
+                        代值 {s.substitutedForIds.length} 人
+                      </button>
+                    ) : (
+                      <span className="text-xs text-gray-400">-</span>
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     <button
@@ -246,6 +262,39 @@ export default function StatisticsPage() {
       </div>
         </>
       )}
+
+      {subListMemberId && (() => {
+        const subStat = stats.find((s) => s.member.id === subListMemberId);
+        if (!subStat) return null;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+            <div className="card w-full max-w-sm p-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-base font-semibold">
+                  {subStat.member.name} 的代值记录
+                </h2>
+                <button
+                  type="button"
+                  className="text-sm text-gray-400 hover:text-gray-600"
+                  onClick={() => setSubListMemberId(null)}
+                >
+                  关闭
+                </button>
+              </div>
+              <p className="mt-1 text-sm text-gray-500">
+                曾代替过以下成员值日：
+              </p>
+              <ul className="mt-3 space-y-1 text-sm">
+                {subStat.substitutedForIds.map((id) => (
+                  <li key={id} className="rounded border border-blue-100 bg-blue-50 px-3 py-1.5 text-blue-800">
+                    {memberNameMap.get(id) ?? id}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        );
+      })()}
 
       {selectedStat && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">

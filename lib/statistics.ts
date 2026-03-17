@@ -4,12 +4,17 @@ export type MemberStats = {
   member: Member;
   groupName: string;
   avgScore: number | null;
+  /** 惩罚天数-正常：所有记录 penaltyDays 的代数和（含补值减免的负值） */
   totalPenaltyDays: number;
+  /** 惩罚天数累计：只累加正值，不抵消 */
+  cumulativePenaltyDays: number;
   present: number;
   improve: number;
   absent: number;
   fail: number;
   perfect: number;
+  /** 该成员曾代替过的成员 ID 列表（去重） */
+  substitutedForIds: string[];
 };
 
 export function computeMemberStats(
@@ -27,18 +32,32 @@ export function computeMemberStats(
         ? validScores.reduce((a, b) => a + b, 0) / validScores.length
         : null;
     const totalPenalty = mr.reduce((sum, r) => sum + (r.penaltyDays ?? 0), 0);
+    const cumulativePenalty = mr.reduce(
+      (sum, r) => sum + Math.max(0, r.penaltyDays ?? 0),
+      0
+    );
     const count = (s: AttendanceRecord["status"]) =>
       mr.filter((r) => r.status === s).length;
+    // 找出所有 "该成员作为代值人" 的原值日人（即其他人记录中 substitutedBy === m.id）
+    const substitutedForIds = Array.from(
+      new Set(
+        records
+          .filter((r) => r.substitutedBy === m.id)
+          .map((r) => r.memberId)
+      )
+    );
     return {
       member: m,
       groupName,
       avgScore: avg,
       totalPenaltyDays: totalPenalty,
+      cumulativePenaltyDays: cumulativePenalty,
       present: count("present"),
       improve: count("improve"),
       absent: count("absent"),
       fail: count("fail"),
-      perfect: count("perfect")
+      perfect: count("perfect"),
+      substitutedForIds
     };
   });
 }

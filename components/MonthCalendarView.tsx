@@ -20,6 +20,7 @@ import {
 import type {
   AttendanceRecord,
   AttendanceStatusCode,
+  ExtraDuty,
   Group,
   Member
 } from "../lib/types";
@@ -55,10 +56,20 @@ const STATUS_LABEL_MAP: Record<AttendanceStatusCode, string> = {
   perfect: "优秀"
 };
 
+const STATUS_DOT: Record<AttendanceStatusCode, string> = {
+  perfect:  "bg-green-500",
+  present:  "bg-green-400",
+  improve:  "bg-blue-400",
+  fail:     "bg-yellow-400",
+  absent:   "bg-red-500",
+  pending:  "bg-gray-300"
+};
+
 export function MonthCalendarView(props: {
   groups: Group[];
   records?: AttendanceRecord[];
   scheduleOverrides?: Record<string, string>;
+  extraDuties?: ExtraDuty[];
   onSave: (record: Omit<AttendanceRecord, "id"> & { id?: string }) => void | Promise<void>;
   onGroupAbsent?: (dateStr: string, memberIds: string[], isSet: boolean) => void | Promise<void>;
   onImportantEvent?: (dateStr: string, memberIds: string[], isSet: boolean) => void | Promise<void>;
@@ -170,16 +181,20 @@ export function MonthCalendarView(props: {
   const selectedDayRecords = getDayRecords(selected);
   const selectedAbsent = selectedDayRecords.some((r) => r.isGroupAbsent);
   const selectedEvent = selectedDayRecords.some((r) => r.isImportantEvent);
+  const selectedExtras = useMemo(
+    () => (props.extraDuties ?? []).filter((e) => e.date === selectedDateStr),
+    [props.extraDuties, selectedDateStr]
+  );
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-xs text-gray-500">
+        <div className="text-sm font-medium text-gray-600">
           当前月份：{year}年{month}月
         </div>
         <div className="flex items-center gap-2">
           <select
-            className="rounded border border-gray-300 px-2 py-1 text-xs"
+            className="rounded border border-gray-300 px-2 py-1 text-sm"
             value={year}
             onChange={(e) =>
               setCurrentMonth(new Date(Number(e.target.value), month - 1, 1))
@@ -192,7 +207,7 @@ export function MonthCalendarView(props: {
             ))}
           </select>
           <select
-            className="rounded border border-gray-300 px-2 py-1 text-xs"
+            className="rounded border border-gray-300 px-2 py-1 text-sm"
             value={month}
             onChange={(e) =>
               setCurrentMonth(new Date(year, Number(e.target.value) - 1, 1))
@@ -206,7 +221,7 @@ export function MonthCalendarView(props: {
           </select>
           <button
             type="button"
-            className="btn-outline text-xs"
+            className="btn-outline text-sm"
             onClick={() => {
               const now = new Date();
               setCurrentMonth(now);
@@ -220,7 +235,7 @@ export function MonthCalendarView(props: {
 
       <div className="grid grid-cols-7 gap-2">
         {WEEK_LABELS.map((w) => (
-          <div key={w} className="rounded bg-gray-50 py-1 text-center text-xs text-gray-600">
+          <div key={w} className="rounded bg-gray-50 py-1 text-center text-sm font-medium text-gray-600">
             周{w}
           </div>
         ))}
@@ -231,13 +246,13 @@ export function MonthCalendarView(props: {
           const dayRecs = getDayRecords(d);
           const absent = dayRecs.some((r) => r.isGroupAbsent);
           const important = dayRecs.some((r) => r.isImportantEvent);
-          const evaluatedCount = dayRecs.filter((r) => r.status !== "pending").length;
+          const dayExtras = (props.extraDuties ?? []).filter((e) => e.date === key);
           const isSelected = selectedDate ? dateKey(selectedDate) === key : false;
           return (
             <button
               key={key}
               type="button"
-              className={`min-h-[92px] rounded border p-2 text-left transition ${
+              className={`min-h-[100px] rounded border p-2 text-left transition ${
                 isSelected
                   ? "border-primary bg-blue-50"
                   : "border-gray-200 hover:border-primary/60"
@@ -245,21 +260,32 @@ export function MonthCalendarView(props: {
               onClick={() => setSelectedDate(d)}
             >
               <div className="flex items-center justify-between">
-                <span className={`text-xs font-medium ${isToday(d) ? "text-primary" : ""}`}>
+                <span className={`text-sm font-semibold ${isToday(d) ? "text-primary" : ""}`}>
                   {format(d, "d")}
                 </span>
-                {isToday(d) && <span className="text-[10px] text-primary">今日</span>}
+                {isToday(d) && <span className="text-xs text-primary font-medium">今日</span>}
               </div>
-              <div className="mt-1 line-clamp-1 text-[11px]">{dayGroup.name}</div>
-              <div className="mt-1 flex flex-wrap gap-1 text-[10px]">
-                <span className="rounded bg-gray-100 px-1 py-0.5 text-gray-600">
-                  已评 {evaluatedCount}/{dayGroup.members.length}
-                </span>
+              <div className="mt-1 line-clamp-1 text-xs text-gray-600">{dayGroup.name}</div>
+              <div className="mt-1 flex flex-wrap items-center gap-0.5">
+                {dayGroup.members.map((m) => {
+                  const rec = dayRecs.find((r) => r.memberId === m.id);
+                  const dotColor = STATUS_DOT[rec?.status ?? "pending"];
+                  return (
+                    <span
+                      key={m.id}
+                      title={`${m.name}：${STATUS_LABEL_MAP[rec?.status ?? "pending"]}`}
+                      className={`inline-block h-2 w-2 rounded-full ${dotColor}`}
+                    />
+                  );
+                })}
                 {absent && (
-                  <span className="rounded bg-red-100 px-1 py-0.5 text-red-700">全缺</span>
+                  <span className="ml-0.5 rounded bg-red-100 px-1 text-[10px] text-red-700">全缺</span>
                 )}
                 {important && (
-                  <span className="rounded bg-amber-100 px-1 py-0.5 text-amber-700">活动</span>
+                  <span className="ml-0.5 rounded bg-amber-100 px-1 text-[10px] text-amber-700">活动</span>
+                )}
+                {dayExtras.length > 0 && (
+                  <span className="ml-0.5 rounded bg-purple-100 px-1 text-[10px] text-purple-700">+{dayExtras.length}</span>
                 )}
               </div>
             </button>
@@ -268,53 +294,56 @@ export function MonthCalendarView(props: {
       </div>
 
       {selectedDate && (
-        <div className="fixed bottom-4 right-4 z-30 w-[360px] max-w-[calc(100vw-2rem)] rounded-lg border border-gray-200 bg-white p-3 shadow-lg">
+        <div className="fixed bottom-4 right-4 z-30 w-[400px] max-w-[calc(100vw-2rem)] rounded-lg border border-gray-200 bg-white p-4 shadow-lg">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <div className="text-sm font-semibold">
-                {format(selected, "yyyy-MM-dd")} · {selectedGroup.name}
+              <div className="text-base font-semibold text-gray-900">
+                {format(selected, "yyyy年M月d日")} · {selectedGroup.name}
               </div>
-              <div className="text-xs text-gray-500">当日评价详情（浮动面板）</div>
+              <div className="text-sm text-gray-500">当日评价详情</div>
             </div>
             <button
               type="button"
-              className="text-xs text-gray-400 hover:text-gray-600"
+              className="text-sm text-gray-400 hover:text-gray-600"
               onClick={() => setSelectedDate(null)}
             >
               关闭
             </button>
           </div>
 
-          <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+          <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
             {selectedGroup.members.map((m) => {
               const rec = selectedDayRecords.find((r) => r.memberId === m.id);
               const statusText = rec ? STATUS_LABEL_MAP[rec.status] : "未评价";
               const scoreText = rec ? rec.score : "-";
               const penaltyText = rec ? rec.penaltyDays : "-";
+              const evaluated = rec && rec.status !== "pending";
               return (
                 <div
                   key={m.id}
-                  className="flex items-center justify-between rounded border border-gray-100 px-2 py-1.5 text-xs"
+                  className={`flex items-center justify-between rounded border px-3 py-2 text-sm ${
+                    evaluated ? "border-green-200 bg-green-50" : "border-gray-100"
+                  }`}
                 >
                   <div>
                     <div className="font-medium text-gray-800">{m.name}</div>
-                    <div className="text-[11px] text-gray-500">
-                      状态：{statusText} · 评分：{scoreText} · 惩罚：{penaltyText}
+                    <div className="text-xs text-gray-500">
+                      状态：{statusText} · 评分：{scoreText} · 惩罚：{penaltyText}天
                     </div>
                     {rec?.isSubstituted && rec.substitutedBy && (
-                      <div className="text-[11px] text-blue-600">
+                      <div className="text-xs text-blue-600">
                         代值人：{memberNameMap.get(rec.substitutedBy) ?? rec.substitutedBy}
                       </div>
                     )}
                     {rec?.isExchanged && rec.exchangedWith && (
-                      <div className="text-[11px] text-purple-600">
+                      <div className="text-xs text-purple-600">
                         还值对象：{memberNameMap.get(rec.exchangedWith) ?? rec.exchangedWith}
                       </div>
                     )}
                   </div>
                   <button
                     type="button"
-                    className={`rounded border px-2 py-1 text-[11px] ${
+                    className={`rounded border px-2 py-1 text-xs ${
                       props.isAdmin
                         ? "border-gray-200 hover:border-primary hover:text-primary"
                         : "border-gray-100 text-gray-400 cursor-not-allowed"
@@ -322,18 +351,32 @@ export function MonthCalendarView(props: {
                     disabled={!props.isAdmin}
                     onClick={() => openForm(m, selected)}
                   >
-                    评价
+                    {evaluated ? "修改" : "评价"}
                   </button>
                 </div>
               );
             })}
           </div>
 
+          {selectedExtras.length > 0 && (
+            <div className="mt-3 border-t border-gray-100 pt-2">
+              <div className="text-xs font-medium text-purple-700 mb-1">额外值日人员</div>
+              <div className="space-y-1">
+                {selectedExtras.map((e) => (
+                  <div key={e.id} className="flex items-center gap-2 rounded bg-purple-50 px-2 py-1 text-xs text-purple-800">
+                    <span className="font-medium">{memberNameMap.get(e.memberId) ?? e.memberId}</span>
+                    {e.reason && <span className="text-purple-500">· {e.reason}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {props.isAdmin && (
-            <div className="mt-3 flex flex-wrap gap-1">
+            <div className="mt-3 flex flex-wrap gap-1.5">
               <button
                 type="button"
-                className="rounded border border-red-200 px-2 py-1 text-[11px] text-red-600 hover:bg-red-50"
+                className="rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50"
                 onClick={() =>
                   void props.onGroupAbsent?.(
                     selectedDateStr,
@@ -346,7 +389,7 @@ export function MonthCalendarView(props: {
               </button>
               <button
                 type="button"
-                className="rounded border border-amber-200 px-2 py-1 text-[11px] text-amber-600 hover:bg-amber-50"
+                className="rounded border border-amber-200 px-2 py-1 text-xs text-amber-600 hover:bg-amber-50"
                 onClick={() =>
                   void props.onImportantEvent?.(
                     selectedDateStr,
@@ -359,7 +402,7 @@ export function MonthCalendarView(props: {
               </button>
               <button
                 type="button"
-                className="rounded border border-gray-200 px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-50"
+                className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50"
                 onClick={() => void props.onResetDay?.(selectedDateStr, selectedMemberIds)}
               >
                 重置当天
@@ -373,16 +416,16 @@ export function MonthCalendarView(props: {
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30">
           <div className="card w-full max-w-md p-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold">考勤评价</h2>
+              <h2 className="text-base font-semibold">考勤评价</h2>
               <button
                 type="button"
-                className="text-xs text-gray-400 hover:text-gray-600"
+                className="text-sm text-gray-400 hover:text-gray-600"
                 onClick={closeForm}
               >
                 关闭
               </button>
             </div>
-            <div className="mt-3 space-y-3 text-xs">
+            <div className="mt-3 space-y-3 text-sm">
               <div className="flex justify-between text-gray-600">
                 <span>成员：{form.member?.name}</span>
                 <span>日期：{form.date}</span>
@@ -391,7 +434,7 @@ export function MonthCalendarView(props: {
               <div className="space-y-1">
                 <label className="block text-gray-600">出勤状态</label>
                 <select
-                  className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs"
+                  className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
                   value={form.status}
                   onChange={(e) =>
                     setForm((prev) =>
@@ -425,7 +468,7 @@ export function MonthCalendarView(props: {
                     type="number"
                     min={0}
                     max={4}
-                    className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs"
+                    className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
                     value={form.score}
                     onChange={(e) =>
                       setForm((prev) =>
@@ -444,7 +487,7 @@ export function MonthCalendarView(props: {
                   <input
                     type="number"
                     min={0}
-                    className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs"
+                    className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
                     value={form.penaltyDays}
                     onChange={(e) =>
                       setForm((prev) =>
@@ -566,17 +609,17 @@ export function MonthCalendarView(props: {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+                <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  className="btn-outline text-xs"
+                  className="btn-outline text-sm"
                   onClick={closeForm}
                 >
                   取消
                 </button>
                 <button
                   type="button"
-                  className="btn-primary text-xs"
+                  className="btn-primary text-sm"
                   onClick={handleSave}
                 >
                   保存
