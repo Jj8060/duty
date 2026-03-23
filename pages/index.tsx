@@ -90,13 +90,7 @@ export default function HomePage() {
         memberId: mid,
         status: isSet ? "absent" : "pending",
         score: isSet ? 1 : 0,
-        penaltyDays: isSet
-          ? applyPenaltyRules({
-              date: dateStr,
-              status: "absent",
-              penaltyDays: 1
-            })
-          : 0,
+        penaltyDays: isSet ? 1 : 0,
         isGroupAbsent: isSet,
         isImportantEvent: false
       });
@@ -158,8 +152,36 @@ export default function HomePage() {
     }
   };
 
+  const getOccurrenceBasedPenalty = (
+    draft: Omit<AttendanceRecord, "id"> & { id?: string }
+  ) => {
+    if (draft.status !== "absent" && draft.status !== "fail") {
+      return Math.max(0, draft.penaltyDays ?? 0);
+    }
+    const existing = records.find(
+      (r) => r.memberId === draft.memberId && r.date === draft.date
+    );
+    const priorCount = records.filter((r) => {
+      const sameMember = r.memberId === draft.memberId;
+      const sameStatus = r.status === draft.status;
+      const sameDayRecord = existing ? r.id === existing.id : false;
+      return sameMember && sameStatus && !sameDayRecord;
+    }).length;
+    const baseByOccurrence = priorCount === 0 ? 1 : 2;
+    return baseByOccurrence;
+  };
+
   const handleSave = async (rec: Omit<AttendanceRecord, "id"> & { id?: string }) => {
-    const saved = await driver.upsertAttendanceRecord(rec);
+    const normalizedPenalty = applyPenaltyRules({
+      date: rec.date,
+      status: rec.status,
+      penaltyDays: getOccurrenceBasedPenalty(rec),
+      isImportantEvent: rec.isImportantEvent
+    });
+    const saved = await driver.upsertAttendanceRecord({
+      ...rec,
+      penaltyDays: normalizedPenalty
+    });
     if (driver.upsertSubstitutionRecord) {
       if (saved.isSubstituted && saved.substitutedBy) {
         await driver.upsertSubstitutionRecord({
