@@ -14,6 +14,7 @@ import {
 import type {
   AttendanceRecord,
   AttendanceStatusCode,
+  ExtraDuty,
   Group,
   Member
 } from "../lib/types";
@@ -42,6 +43,7 @@ const STATUS_OPTIONS: { value: AttendanceStatusCode; label: string }[] = [
 export function WeekListView(props: {
   groups: Group[];
   records?: AttendanceRecord[];
+  extraDuties?: ExtraDuty[];
   scheduleOverrides?: Record<string, string>;
   onSave: (record: Omit<AttendanceRecord, "id"> & { id?: string }) => void | Promise<void>;
   onOverrideChange?: (weekStart: string, groupId: string) => void;
@@ -82,6 +84,10 @@ export function WeekListView(props: {
     return defaultGroup;
   }, [props.groups, props.scheduleOverrides, weekStartISO, defaultGroup]);
   const allMembers = useMemo(() => props.groups.flatMap((g) => g.members), [props.groups]);
+  const memberNameMap = useMemo(
+    () => new Map(allMembers.map((m) => [m.id, m.name])),
+    [allMembers]
+  );
 
   const goToWeek = (y: number, w: number) => {
     const max = getWeeksInYear(y);
@@ -241,6 +247,7 @@ export function WeekListView(props: {
               const dayRecords = (props.records ?? []).filter(
                 (r) => r.date === dateStr && memberIds.includes(r.memberId)
               );
+              const dayExtras = (props.extraDuties ?? []).filter((e) => e.date === dateStr);
               const isGroupAbsent = dayRecords.some((r) => r.isGroupAbsent);
               const isImportantEvent = dayRecords.some((r) => r.isImportantEvent);
               return (
@@ -281,6 +288,20 @@ export function WeekListView(props: {
                         );
                       })}
                     </div>
+                    {dayExtras.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {dayExtras.map((e) => (
+                          <span
+                            key={e.id}
+                            className="rounded bg-purple-50 px-2 py-0.5 text-xs text-purple-700"
+                            title={e.reason ?? "额外值日"}
+                          >
+                            额外：{memberNameMap.get(e.memberId) ?? e.memberId}
+                            {e.reason ? ` · ${e.reason}` : ""}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </td>
                   {props.isAdmin && (
                     <td className="px-3 py-2 align-top">

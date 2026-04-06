@@ -155,8 +155,11 @@ export default function HomePage() {
   const getOccurrenceBasedPenalty = (
     draft: Omit<AttendanceRecord, "id"> & { id?: string }
   ) => {
+    if (draft.isCompensation) {
+      return draft.penaltyDays ?? 0;
+    }
     if (draft.status !== "absent" && draft.status !== "fail") {
-      return Math.max(0, draft.penaltyDays ?? 0);
+      return draft.penaltyDays ?? 0;
     }
     const existing = records.find(
       (r) => r.memberId === draft.memberId && r.date === draft.date
@@ -172,12 +175,14 @@ export default function HomePage() {
   };
 
   const handleSave = async (rec: Omit<AttendanceRecord, "id"> & { id?: string }) => {
-    const normalizedPenalty = applyPenaltyRules({
-      date: rec.date,
-      status: rec.status,
-      penaltyDays: getOccurrenceBasedPenalty(rec),
-      isImportantEvent: rec.isImportantEvent
-    });
+    const normalizedPenalty = rec.isCompensation
+      ? getOccurrenceBasedPenalty(rec)
+      : applyPenaltyRules({
+          date: rec.date,
+          status: rec.status,
+          penaltyDays: getOccurrenceBasedPenalty(rec),
+          isImportantEvent: rec.isImportantEvent
+        });
     const saved = await driver.upsertAttendanceRecord({
       ...rec,
       penaltyDays: normalizedPenalty
@@ -240,9 +245,33 @@ export default function HomePage() {
           detail: { reason: saved.reason ?? null }
         });
       }
+      const hasAttendanceOnDate = records.some(
+        (r) => r.memberId === saved.memberId && r.date === saved.date
+      );
+      const memberTotalPenalty = records
+        .filter((r) => r.memberId === saved.memberId)
+        .reduce((sum, r) => sum + (r.penaltyDays ?? 0), 0);
+      if (!hasAttendanceOnDate && memberTotalPenalty > 0) {
+        await handleSave({
+          date: saved.date,
+          memberId: saved.memberId,
+          status: "pending",
+          score: 0,
+          penaltyDays: -1,
+          isCompensation: true,
+          isImportantEvent: false,
+          isGroupAbsent: false
+        });
+      }
       setExtraDuties((prev) => [saved, ...prev].sort((a, b) => (a.date < b.date ? 1 : -1)));
       setExtraReason("");
-      setExtraMsg("额外值日已添加");
+      if (hasAttendanceOnDate && memberTotalPenalty > 0) {
+        setExtraMsg("额外值日已添加（该日期已有考勤记录，未自动写入补值减免）");
+      } else if (memberTotalPenalty > 0) {
+        setExtraMsg("额外值日已添加，并自动减免1天（仅影响惩罚-正常）");
+      } else {
+        setExtraMsg("额外值日已添加");
+      }
     } catch (e) {
       setExtraMsg(`添加失败：${String(e)}`);
     }
@@ -315,6 +344,7 @@ export default function HomePage() {
             <WeekListView
               groups={groups}
               records={records}
+              extraDuties={extraDuties}
               scheduleOverrides={overrides}
               onSave={handleSave}
               onOverrideChange={handleOverride}
