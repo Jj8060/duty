@@ -20,6 +20,7 @@ import {
 import type {
   AttendanceRecord,
   AttendanceStatusCode,
+  DailyDutyMember,
   ExtraDuty,
   Group,
   Member
@@ -70,6 +71,7 @@ export function MonthCalendarView(props: {
   records?: AttendanceRecord[];
   scheduleOverrides?: Record<string, string>;
   extraDuties?: ExtraDuty[];
+  dailyDutyMembers?: DailyDutyMember[];
   onSave: (record: Omit<AttendanceRecord, "id"> & { id?: string }) => void | Promise<void>;
   onGroupAbsent?: (dateStr: string, memberIds: string[], isSet: boolean) => void | Promise<void>;
   onImportantEvent?: (dateStr: string, memberIds: string[], isSet: boolean) => void | Promise<void>;
@@ -118,9 +120,16 @@ export function MonthCalendarView(props: {
   };
 
   const getDayRecords = (d: Date) => {
-    const g = getDayGroup(d);
-    const ids = g.members.map((m) => m.id);
     const key = dateKey(d);
+    const g = getDayGroup(d);
+    const persistedDayIds = (props.dailyDutyMembers ?? [])
+      .filter((x) => x.date === key)
+      .map((x) => x.memberId);
+    const extraIds = (props.extraDuties ?? [])
+      .filter((e) => e.date === key)
+      .map((e) => e.memberId);
+    const baseIds = persistedDayIds.length > 0 ? persistedDayIds : g.members.map((m) => m.id);
+    const ids = Array.from(new Set([...baseIds, ...extraIds]));
     return (props.records ?? []).filter(
       (r) => r.date === key && ids.includes(r.memberId)
     );
@@ -177,14 +186,33 @@ export function MonthCalendarView(props: {
   const selected = selectedDate ?? today;
   const selectedGroup = getDayGroup(selected);
   const selectedDateStr = dateKey(selected);
-  const selectedMemberIds = selectedGroup.members.map((m) => m.id);
-  const selectedDayRecords = getDayRecords(selected);
-  const selectedAbsent = selectedDayRecords.some((r) => r.isGroupAbsent);
-  const selectedEvent = selectedDayRecords.some((r) => r.isImportantEvent);
   const selectedExtras = useMemo(
     () => (props.extraDuties ?? []).filter((e) => e.date === selectedDateStr),
     [props.extraDuties, selectedDateStr]
   );
+  const selectedMemberIds = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...((props.dailyDutyMembers ?? []).filter((x) => x.date === selectedDateStr).map((x) => x.memberId)
+            .length > 0
+            ? (props.dailyDutyMembers ?? []).filter((x) => x.date === selectedDateStr).map((x) => x.memberId)
+            : selectedGroup.members.map((m) => m.id)),
+          ...selectedExtras.map((e) => e.memberId)
+        ])
+      ),
+    [props.dailyDutyMembers, selectedDateStr, selectedGroup.members, selectedExtras]
+  );
+  const selectedMembers = useMemo(
+    () =>
+      selectedMemberIds
+        .map((id) => allMembers.find((m) => m.id === id))
+        .filter((m): m is Member => Boolean(m)),
+    [selectedMemberIds, allMembers]
+  );
+  const selectedDayRecords = getDayRecords(selected);
+  const selectedAbsent = selectedDayRecords.some((r) => r.isGroupAbsent);
+  const selectedEvent = selectedDayRecords.some((r) => r.isImportantEvent);
 
   return (
     <div className="space-y-4">
@@ -312,7 +340,7 @@ export function MonthCalendarView(props: {
           </div>
 
           <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
-            {selectedGroup.members.map((m) => {
+            {selectedMembers.map((m) => {
               const rec = selectedDayRecords.find((r) => r.memberId === m.id);
               const statusText = rec ? STATUS_LABEL_MAP[rec.status] : "未评价";
               const scoreText = rec ? rec.score : "-";

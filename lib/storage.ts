@@ -1,6 +1,7 @@
 import type {
   AdminOperationLog,
   AttendanceRecord,
+  DailyDutyMember,
   ExtraDuty,
   Group,
   SubstitutionRecord
@@ -65,6 +66,16 @@ export interface StorageDriver {
   upsertExtraDuty?(data: Omit<ExtraDuty, "id" | "createdAt"> & { id?: string }): Promise<ExtraDuty>;
   deleteExtraDuty?(id: string): Promise<void>;
 
+  listDailyDutyMembers?(params?: {
+    fromDate?: string;
+    toDate?: string;
+  }): Promise<DailyDutyMember[]>;
+  upsertDailyDutyMember?(data: {
+    date: string;
+    memberId: string;
+  }): Promise<DailyDutyMember>;
+  deleteDailyDutyMember?(date: string, memberId: string): Promise<void>;
+
   upsertAttendanceRecord(
     record: Omit<AttendanceRecord, "id"> & { id?: string }
   ): Promise<AttendanceRecord>;
@@ -85,6 +96,7 @@ export class MemoryDriver implements StorageDriver {
   private groups: Group[];
   private attendance: AttendanceRecord[] = [];
   private extraDuties: ExtraDuty[] = [];
+  private dailyDutyMembers: DailyDutyMember[] = [];
   private substitutions: SubstitutionRecord[] = [];
   private admins: {
     id: string;
@@ -327,6 +339,41 @@ export class MemoryDriver implements StorageDriver {
 
   async deleteExtraDuty(id: string): Promise<void> {
     this.extraDuties = this.extraDuties.filter((d) => d.id !== id);
+  }
+
+  async listDailyDutyMembers(params?: {
+    fromDate?: string;
+    toDate?: string;
+  }): Promise<DailyDutyMember[]> {
+    return this.dailyDutyMembers.filter((d) => {
+      if (params?.fromDate && d.date < params.fromDate) return false;
+      if (params?.toDate && d.date > params.toDate) return false;
+      return true;
+    });
+  }
+
+  async upsertDailyDutyMember(data: {
+    date: string;
+    memberId: string;
+  }): Promise<DailyDutyMember> {
+    const existing = this.dailyDutyMembers.find(
+      (d) => d.date === data.date && d.memberId === data.memberId
+    );
+    if (existing) return existing;
+    const full: DailyDutyMember = {
+      id: `day-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      date: data.date,
+      memberId: data.memberId,
+      createdAt: new Date().toISOString()
+    };
+    this.dailyDutyMembers.push(full);
+    return full;
+  }
+
+  async deleteDailyDutyMember(date: string, memberId: string): Promise<void> {
+    this.dailyDutyMembers = this.dailyDutyMembers.filter(
+      (d) => !(d.date === date && d.memberId === memberId)
+    );
   }
 }
 
@@ -655,6 +702,59 @@ export class SupabaseDriver implements StorageDriver {
 
   async deleteExtraDuty(id: string): Promise<void> {
     const { error } = await supabase.from("extra_duties").delete().eq("id", id);
+    if (error) throw new Error(error.message);
+  }
+
+  async listDailyDutyMembers(params?: {
+    fromDate?: string;
+    toDate?: string;
+  }): Promise<DailyDutyMember[]> {
+    let q = supabase
+      .from("daily_duty_members")
+      .select("id,date,member_id,created_at")
+      .order("date", { ascending: false });
+    if (params?.fromDate) q = q.gte("date", params.fromDate);
+    if (params?.toDate) q = q.lte("date", params.toDate);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((r: any) => ({
+      id: r.id,
+      date: r.date,
+      memberId: r.member_id,
+      createdAt: r.created_at
+    }));
+  }
+
+  async upsertDailyDutyMember(data: {
+    date: string;
+    memberId: string;
+  }): Promise<DailyDutyMember> {
+    const { data: row, error } = await supabase
+      .from("daily_duty_members")
+      .upsert(
+        {
+          date: data.date,
+          member_id: data.memberId
+        },
+        { onConflict: "date,member_id" }
+      )
+      .select("id,date,member_id,created_at")
+      .single();
+    if (error || !row) throw new Error(error?.message ?? "保存每日值日成员失败");
+    return {
+      id: row.id,
+      date: row.date,
+      memberId: row.member_id,
+      createdAt: row.created_at
+    };
+  }
+
+  async deleteDailyDutyMember(date: string, memberId: string): Promise<void> {
+    const { error } = await supabase
+      .from("daily_duty_members")
+      .delete()
+      .eq("date", date)
+      .eq("member_id", memberId);
     if (error) throw new Error(error.message);
   }
 

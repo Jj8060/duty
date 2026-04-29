@@ -14,6 +14,7 @@ import {
 import type {
   AttendanceRecord,
   AttendanceStatusCode,
+  DailyDutyMember,
   ExtraDuty,
   Group,
   Member
@@ -31,6 +32,11 @@ interface AttendanceFormState {
   exchangedWith: string | null;
 }
 
+interface DayAddFormState {
+  memberId: string;
+  reason: string;
+}
+
 const STATUS_OPTIONS: { value: AttendanceStatusCode; label: string }[] = [
   { value: "present", label: "已到" },
   { value: "absent", label: "缺席" },
@@ -44,6 +50,7 @@ export function WeekListView(props: {
   groups: Group[];
   records?: AttendanceRecord[];
   extraDuties?: ExtraDuty[];
+  dailyDutyMembers?: DailyDutyMember[];
   scheduleOverrides?: Record<string, string>;
   onSave: (record: Omit<AttendanceRecord, "id"> & { id?: string }) => void | Promise<void>;
   onOverrideChange?: (weekStart: string, groupId: string) => void;
@@ -51,12 +58,17 @@ export function WeekListView(props: {
   onGroupAbsent?: (dateStr: string, memberIds: string[], isSet: boolean) => void | Promise<void>;
   onImportantEvent?: (dateStr: string, memberIds: string[], isSet: boolean) => void | Promise<void>;
   onResetDay?: (dateStr: string, memberIds: string[]) => void | Promise<void>;
+  onAddExtraDuty?: (date: string, memberId: string, reason?: string) => void | Promise<void>;
+  onDeleteExtraDuty?: (id: string) => void | Promise<void>;
+  onAddDayMember?: (date: string, memberId: string) => void | Promise<void>;
+  onRemoveDayMember?: (date: string, memberId: string) => void | Promise<void>;
   isAdmin?: boolean;
 }) {
   const today = new Date();
   const [currentDate, setCurrentDate] = useState<Date>(() => today);
   const [includeWeekend, setIncludeWeekend] = useState(false);
   const [form, setForm] = useState<AttendanceFormState | null>(null);
+  const [dayAddForms, setDayAddForms] = useState<Record<string, DayAddFormState>>({});
 
   const year = currentDate.getFullYear();
   const weekNum = getWeek(currentDate, { weekStartsOn: 1 });
@@ -94,6 +106,19 @@ export function WeekListView(props: {
     setCurrentDate(getDateFromYearWeek(y, Math.min(w, max)));
   };
   const goToToday = () => setCurrentDate(new Date());
+
+  const getMergedMemberIdsForDate = (dateStr: string) => {
+    const persistedDayIds = (props.dailyDutyMembers ?? [])
+      .filter((d) => d.date === dateStr)
+      .map((d) => d.memberId);
+    const baseIds = persistedDayIds.length > 0 ? persistedDayIds : weekGroup.members.map((m) => m.id);
+    const extraIds = (props.extraDuties ?? [])
+      .filter((e) => e.date === dateStr)
+      .map((e) => e.memberId);
+    return Array.from(new Set([...baseIds, ...extraIds]));
+  };
+
+  const getDayMemberIds = (dateStr: string) => getMergedMemberIdsForDate(dateStr);
 
   const openForm = (member: Member, date: Date) => {
     if (!props.isAdmin) return;
@@ -243,7 +268,10 @@ export function WeekListView(props: {
                 day.getDay()
               ];
               const dateStr = format(day, "yyyy-MM-dd");
-              const memberIds = weekGroup.members.map((m) => m.id);
+              const memberIds = getDayMemberIds(dateStr);
+              const dayMembers = memberIds
+                .map((id) => allMembers.find((m) => m.id === id))
+                .filter((m): m is Member => Boolean(m));
               const dayRecords = (props.records ?? []).filter(
                 (r) => r.date === dateStr && memberIds.includes(r.memberId)
               );
@@ -263,7 +291,7 @@ export function WeekListView(props: {
                   </td>
                   <td className="px-3 py-2 align-top">
                     <div className="flex flex-wrap gap-2">
-                      {weekGroup.members.map((m) => {
+                      {dayMembers.map((m) => {
                         const rec = dayRecords.find((r) => r.memberId === m.id);
                         const evaluated = rec && rec.status !== "pending";
                         return (
@@ -288,6 +316,83 @@ export function WeekListView(props: {
                         );
                       })}
                     </div>
+                    {props.isAdmin && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <select
+                          className="rounded border border-gray-300 px-2 py-1 text-xs"
+                          value={dayAddForms[dateStr]?.memberId ?? ""}
+                          onChange={(e) =>
+                            setDayAddForms((prev) => ({
+                              ...prev,
+                              [dateStr]: {
+                                memberId: e.target.value,
+                                reason: prev[dateStr]?.reason ?? ""
+                              }
+                            }))
+                          }
+                        >
+                          <option value="">选择成员（增减当日值日）</option>
+                          {allMembers.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.name}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          className="rounded border border-blue-200 px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
+                          onClick={() =>
+                            void props.onAddDayMember?.(
+                              dateStr,
+                              dayAddForms[dateStr]?.memberId ?? ""
+                            )
+                          }
+                        >
+                          添加到当天
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded border border-purple-200 px-2 py-1 text-xs text-purple-600 hover:bg-purple-50"
+                          onClick={() =>
+                            void props.onAddExtraDuty?.(
+                              dateStr,
+                              dayAddForms[dateStr]?.memberId ?? "",
+                              dayAddForms[dateStr]?.reason ?? ""
+                            )
+                          }
+                        >
+                          添加补值
+                        </button>
+                        <input
+                          className="rounded border border-gray-300 px-2 py-1 text-xs"
+                          placeholder="补值原因（可选）"
+                          value={dayAddForms[dateStr]?.reason ?? ""}
+                          onChange={(e) =>
+                            setDayAddForms((prev) => ({
+                              ...prev,
+                              [dateStr]: {
+                                memberId: prev[dateStr]?.memberId ?? "",
+                                reason: e.target.value
+                              }
+                            }))
+                          }
+                        />
+                      </div>
+                    )}
+                    {props.isAdmin && dayMembers.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {dayMembers.map((m) => (
+                          <button
+                            key={`${dateStr}-${m.id}-remove`}
+                            type="button"
+                            className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:border-red-200 hover:text-red-600"
+                            onClick={() => void props.onRemoveDayMember?.(dateStr, m.id)}
+                          >
+                            删除人员：{m.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     {dayExtras.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1">
                         {dayExtras.map((e) => (
@@ -298,6 +403,15 @@ export function WeekListView(props: {
                           >
                             额外：{memberNameMap.get(e.memberId) ?? e.memberId}
                             {e.reason ? ` · ${e.reason}` : ""}
+                            {props.isAdmin && props.onDeleteExtraDuty && (
+                              <button
+                                type="button"
+                                className="ml-1 text-red-600 hover:underline"
+                                onClick={() => void props.onDeleteExtraDuty?.(e.id)}
+                              >
+                                删除
+                              </button>
+                            )}
                           </span>
                         ))}
                       </div>

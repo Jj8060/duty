@@ -44,6 +44,13 @@ export interface ExtraDuty {
   createdAt?: string;
 }
 
+export interface DailyDutyMember {
+  id: string;
+  date: string; // yyyy-MM-dd
+  memberId: string;
+  createdAt?: string;
+}
+
 export interface AdminOperationLog {
   id: string;
   operatorUsername: string;

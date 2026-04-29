@@ -1,4 +1,3 @@
-import { format } from "date-fns";
 import { useEffect, useMemo, useState } from "react";
 import { WeekListView } from "../components/WeekListView";
 import { MonthCalendarView } from "../components/MonthCalendarView";
@@ -8,7 +7,7 @@ import { applyPenaltyRules } from "../lib/attendanceRules";
 import { driver } from "../lib/appData";
 import { useAuth } from "../lib/AuthContext";
 import { computeMemberStats, getLowScoreWarnings } from "../lib/statistics";
-import type { AttendanceRecord, ExtraDuty, Group } from "../lib/types";
+import type { AttendanceRecord, DailyDutyMember, ExtraDuty, Group } from "../lib/types";
 
 type ViewMode = "calendar" | "list";
 
@@ -19,10 +18,7 @@ export default function HomePage() {
   const [groups, setGroups] = useState<Group[]>(() => createDefaultGroups());
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [extraDuties, setExtraDuties] = useState<ExtraDuty[]>([]);
-  const [extraDate, setExtraDate] = useState(format(new Date(), "yyyy-MM-dd"));
-  const [extraMemberId, setExtraMemberId] = useState("");
-  const [extraReason, setExtraReason] = useState("");
-  const [extraMsg, setExtraMsg] = useState<string | null>(null);
+  const [dailyDutyMembers, setDailyDutyMembers] = useState<DailyDutyMember[]>([]);
   const [showLogin, setShowLogin] = useState(false);
 
   useEffect(() => {
@@ -37,12 +33,10 @@ export default function HomePage() {
     if (driver.listExtraDuties) {
       void driver.listExtraDuties().then(setExtraDuties).catch(() => {});
     }
+    if (driver.listDailyDutyMembers) {
+      void driver.listDailyDutyMembers().then(setDailyDutyMembers).catch(() => {});
+    }
   }, []);
-  const allMembers = useMemo(() => groups.flatMap((g) => g.members), [groups]);
-  const memberNameMap = useMemo(
-    () => new Map(allMembers.map((m) => [m.id, m.name])),
-    [allMembers]
-  );
   const lowWarnings = useMemo(
     () => getLowScoreWarnings(computeMemberStats(records, groups)).slice(0, 6),
     [records, groups]
@@ -170,7 +164,7 @@ export default function HomePage() {
       const sameDayRecord = existing ? r.id === existing.id : false;
       return sameMember && sameStatus && !sameDayRecord;
     }).length;
-    const baseByOccurrence = priorCount === 0 ? 1 : 2;
+    const baseByOccurrence = priorCount <= 1 ? 1 : 2;
     return baseByOccurrence;
   };
 
@@ -228,14 +222,13 @@ export default function HomePage() {
     });
   };
 
-  const handleAddExtraDuty = async () => {
-    if (!driver.upsertExtraDuty || !extraDate || !extraMemberId) return;
-    setExtraMsg(null);
+  const handleAddExtraDuty = async (date: string, memberId: string, reason?: string) => {
+    if (!driver.upsertExtraDuty || !date || !memberId) return;
     try {
       const saved = await driver.upsertExtraDuty({
-        date: extraDate,
-        memberId: extraMemberId,
-        reason: extraReason || null
+        date,
+        memberId,
+        reason: reason || null
       });
       if (admin) {
         await driver.logAdminOperation?.({
@@ -264,22 +257,11 @@ export default function HomePage() {
         });
       }
       setExtraDuties((prev) => [saved, ...prev].sort((a, b) => (a.date < b.date ? 1 : -1)));
-      setExtraReason("");
-      if (hasAttendanceOnDate && memberTotalPenalty > 0) {
-        setExtraMsg("额外值日已添加（该日期已有考勤记录，未自动写入补值减免）");
-      } else if (memberTotalPenalty > 0) {
-        setExtraMsg("额外值日已添加，并自动减免1天（仅影响惩罚-正常）");
-      } else {
-        setExtraMsg("额外值日已添加");
-      }
-    } catch (e) {
-      setExtraMsg(`添加失败：${String(e)}`);
-    }
+    } catch {}
   };
 
   const handleDeleteExtraDuty = async (id: string) => {
     if (!driver.deleteExtraDuty) return;
-    setExtraMsg(null);
     try {
       const target = extraDuties.find((d) => d.id === id);
       await driver.deleteExtraDuty(id);
@@ -291,10 +273,26 @@ export default function HomePage() {
         });
       }
       setExtraDuties((prev) => prev.filter((d) => d.id !== id));
-      setExtraMsg("额外值日已删除");
-    } catch (e) {
-      setExtraMsg(`删除失败：${String(e)}`);
-    }
+    } catch {}
+  };
+
+  const handleAddDayMember = async (date: string, memberId: string) => {
+    if (!driver.upsertDailyDutyMember || !date || !memberId) return;
+    const saved = await driver.upsertDailyDutyMember({ date, memberId });
+    setDailyDutyMembers((prev) => {
+      if (prev.some((m) => m.date === saved.date && m.memberId === saved.memberId)) {
+        return prev;
+      }
+      return [...prev, saved];
+    });
+  };
+
+  const handleRemoveDayMember = async (date: string, memberId: string) => {
+    if (!driver.deleteDailyDutyMember || !date || !memberId) return;
+    await driver.deleteDailyDutyMember(date, memberId);
+    setDailyDutyMembers((prev) =>
+      prev.filter((m) => !(m.date === date && m.memberId === memberId))
+    );
   };
 
   return (
@@ -334,6 +332,7 @@ export default function HomePage() {
               records={records}
               scheduleOverrides={overrides}
               extraDuties={extraDuties}
+              dailyDutyMembers={dailyDutyMembers}
               onSave={handleSave}
               onGroupAbsent={handleGroupAbsent}
               onImportantEvent={handleImportantEvent}
@@ -345,6 +344,7 @@ export default function HomePage() {
               groups={groups}
               records={records}
               extraDuties={extraDuties}
+              dailyDutyMembers={dailyDutyMembers}
               scheduleOverrides={overrides}
               onSave={handleSave}
               onOverrideChange={handleOverride}
@@ -353,6 +353,10 @@ export default function HomePage() {
               onImportantEvent={handleImportantEvent}
               onResetDay={handleResetDay}
               isAdmin={!!admin}
+              onAddExtraDuty={handleAddExtraDuty}
+              onDeleteExtraDuty={handleDeleteExtraDuty}
+              onAddDayMember={handleAddDayMember}
+              onRemoveDayMember={handleRemoveDayMember}
             />
           )}
         </section>
@@ -405,80 +409,6 @@ export default function HomePage() {
                 ))}
               </ul>
             )}
-          </section>
-
-          <section className="card p-4">
-            <h2 className="text-sm font-semibold">额外值日人员</h2>
-            {admin ? (
-              <div className="mt-2 space-y-2 text-xs">
-                <div className="grid grid-cols-1 gap-2">
-                  <input
-                    type="date"
-                    className="rounded border border-gray-300 px-2 py-1"
-                    value={extraDate}
-                    onChange={(e) => setExtraDate(e.target.value)}
-                  />
-                  <select
-                    className="rounded border border-gray-300 px-2 py-1"
-                    value={extraMemberId}
-                    onChange={(e) => setExtraMemberId(e.target.value)}
-                  >
-                    <option value="">选择成员</option>
-                    {allMembers.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    className="rounded border border-gray-300 px-2 py-1"
-                    placeholder="原因（可选）"
-                    value={extraReason}
-                    onChange={(e) => setExtraReason(e.target.value)}
-                  />
-                </div>
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    className="btn-primary text-xs"
-                    onClick={() => void handleAddExtraDuty()}
-                  >
-                    添加额外值日
-                  </button>
-                </div>
-                {extraMsg && (
-                  <p className={`text-[11px] ${extraMsg.includes("失败") ? "text-red-600" : "text-green-600"}`}>
-                    {extraMsg}
-                  </p>
-                )}
-              </div>
-            ) : (
-              <p className="mt-2 text-xs text-gray-500">登录后可维护额外值日。</p>
-            )}
-
-            <div className="mt-3 max-h-44 overflow-auto space-y-1 text-xs">
-              {extraDuties.length === 0 ? (
-                <p className="text-gray-400">暂无额外值日记录</p>
-              ) : (
-                extraDuties.slice(0, 12).map((d) => (
-                  <div key={d.id} className="flex items-center justify-between rounded border border-gray-100 px-2 py-1">
-                    <span className="text-gray-600">
-                      {d.date} · {memberNameMap.get(d.memberId) ?? d.memberId}
-                      {d.reason ? ` · ${d.reason}` : ""}
-                    </span>
-                    {admin && (
-                      <button
-                        type="button"
-                        className="text-[11px] text-red-600 hover:underline"
-                        onClick={() => void handleDeleteExtraDuty(d.id)}
-                      >
-                        删除
-                      </button>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
           </section>
 
           <section className="card p-4">

@@ -72,6 +72,17 @@ create table if not exists public.extra_duties (
   created_at timestamptz default now()
 );
 
+-- 6.1) 每日值日成员覆盖表（支持按日期自由增减人员）
+create table if not exists public.daily_duty_members (
+  id uuid primary key default gen_random_uuid(),
+  date date not null,
+  member_id text not null references public.members(id) on delete cascade,
+  created_at timestamptz default now()
+);
+
+create unique index if not exists daily_duty_members_date_member_idx
+  on public.daily_duty_members(date, member_id);
+
 -- 7) 代值/还值关系表
 create table if not exists public.substitution_records (
   id uuid primary key default gen_random_uuid(),
